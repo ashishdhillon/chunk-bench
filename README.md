@@ -43,13 +43,40 @@ It also appears in `chunk-bench list` and `chunk-bench run`.
 
 JSON with `documents` (`id`, `text`) and `questions` (`question`, `doc_id`, `evidence`). `evidence` must appear verbatim in the document; the loader validates this. See `src/chunk_bench/data/sample.json`.
 
-## Status and honesty note
+## Datasets
 
-The bundled `sample` dataset (3 short documents, 15 questions) is a **smoke test**, not a leaderboard: all strategies score near 1.0 on it, so it cannot separate them. Meaningful comparisons need larger, structure-rich corpora (long manuals, papers, legal and API docs). Adding such datasets and a results table is the next milestone.
+| name | contents |
+|---|---|
+| `sample` | 3 short synthetic docs, 15 questions. A smoke test only: every strategy scores about 1.0. |
+| `k8s-docs` | 2 real Kubernetes concept pages (ConfigMaps, Pods), 31 questions with verbatim evidence spans. Source and license: see [NOTICE](NOTICE). |
+
+## First results (`k8s-docs`, BM25)
+
+```bash
+chunk-bench run --dataset k8s-docs --max-words 40,80,160 --format md
+```
+
+| max_words | strategy | chunks | avg_words | hit@1 | hit@3 | mrr |
+|---|---|---|---|---|---|---|
+| 40 | fixed | 149 | 39.9 | 0.645 | 0.774 | 0.722 |
+| 40 | recursive | 215 | 22.2 | 0.742 | 0.774 | 0.791 |
+| 40 | sentence | 137 | 34.8 | 0.581 | 0.71 | 0.658 |
+| 40 | structure | 145 | 41.0 | 0.516 | 0.742 | 0.648 |
+| 80 | fixed | 75 | 79.1 | 0.71 | 0.935 | 0.818 |
+| 80 | recursive | 169 | 28.2 | 0.71 | 0.935 | 0.828 |
+| 80 | sentence | 64 | 74.4 | 0.677 | 0.871 | 0.791 |
+| 80 | structure | 75 | 70.7 | 0.677 | 0.871 | 0.774 |
+| 160 | fixed | 38 | 155.7 | 0.774 | 0.935 | 0.858 |
+| 160 | recursive | 159 | 30.0 | 0.742 | 0.935 | 0.844 |
+| 160 | sentence | 32 | 148.8 | 0.774 | 0.935 | 0.852 |
+| 160 | structure | 47 | 107.7 | 0.742 | 0.935 | 0.834 |
+
+**Read these with care.** There are only 31 questions, so one question is about 3 points of hit rate; gaps of a few points are noise, not a ranking. `recursive` leads at the smallest budget, and every strategy converges as chunks get larger. The heading-prefix baseline does not win here (its prefix adds words beyond the budget and can dilute BM25 scores). More documents and questions are needed before drawing conclusions.
 
 ## Roadmap
 
-- [ ] Larger public datasets with structured documents (HTML, PDF-to-markdown)
+- [x] First real dataset (`k8s-docs`)
+- [ ] More and larger structured corpora (more doc pages, HTML, PDF-to-markdown)
 - [ ] Embedding-based retrieval backend (optional extra)
 - [ ] Answer-level evaluation with an LLM judge (optional extra)
 - [ ] Results table and hosted leaderboard

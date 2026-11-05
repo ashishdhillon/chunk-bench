@@ -34,9 +34,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     sub.add_parser("list", help="list available chunking strategies")
 
     run = sub.add_parser("run", help="run the benchmark")
-    run.add_argument("--dataset", default="sample", help="'sample' or path to a JSON dataset")
+    run.add_argument(
+        "--dataset", default="sample", help="'sample', 'k8s-docs' or path to a JSON dataset"
+    )
     run.add_argument("--strategies", default="", help="comma-separated; default: all")
-    run.add_argument("--max-words", type=int, default=40, help="chunk word budget")
+    run.add_argument(
+        "--max-words", default="40", help="chunk word budget; comma-separated to sweep, e.g. 40,80,160"
+    )
     run.add_argument("--format", choices=["table", "md", "json"], default="table")
 
     args = parser.parse_args(argv)
@@ -48,7 +52,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     names = [s for s in args.strategies.split(",") if s] or available_strategies()
     dataset = load_dataset(args.dataset)
     try:
-        rows = run_benchmark(dataset, names, max_words=args.max_words)
+        budgets = [int(b) for b in args.max_words.split(",") if b]
+    except ValueError:
+        print("--max-words must be integers, e.g. 40 or 40,80,160", file=sys.stderr)
+        return 2
+    rows: List[dict] = []
+    try:
+        for budget in budgets:
+            for row in run_benchmark(dataset, names, max_words=budget):
+                rows.append({"max_words": budget, **row})
     except KeyError as exc:
         print(exc.args[0], file=sys.stderr)
         return 2

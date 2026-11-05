@@ -1,0 +1,14 @@
+The `k8s-docs` dataset (src/chunk_bench/data/k8s-docs.json) contains text derived
+from the Kubernetes documentation (https://github.com/kubernetes/website,
+content/en/docs/concepts/configuration/configmap.md and
+content/en/docs/concepts/workloads/pods/_index.md).
+
+Copyright The Kubernetes Authors / The Linux Foundation.
+Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
+
+Changes: front matter, code blocks, HTML tags, Hugo shortcodes and link targets
+were removed, and one empty heading was restored. The questions and evidence
+annotations were written for this benchmark.
+
+The rest of this repository is under the MIT License (see LICENSE).
