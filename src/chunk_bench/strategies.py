@@ -125,12 +125,12 @@ def structure(text: str, max_words: int) -> List[str]:
     ``@register_strategy``.
     """
     path: List[str] = []
-    sections: List[tuple] = []  # (heading_path, body_lines)
+    sections: List[tuple] = []  # (heading_list, body_lines)
     body: List[str] = []
 
     def flush() -> None:
         if body or path:
-            sections.append((" > ".join(path), list(body)))
+            sections.append((list(path), list(body)))
         body.clear()
 
     for line in text.splitlines():
@@ -144,12 +144,20 @@ def structure(text: str, max_words: int) -> List[str]:
     flush()
 
     chunks: List[str] = []
-    for heading, lines in sections:
+    for crumbs, lines in sections:
         sentences = _sentences("\n".join(lines))
         if not sentences:
             continue
-        for piece in _pack(sentences, max_words):
-            chunks.append(f"{heading}: {piece}" if heading else piece)
+        # The heading prefix counts against the word budget, so chunk size is
+        # comparable with the other strategies (same rule as sdca_lite).
+        prefix = " > ".join(crumbs)
+        if len(prefix.split()) > max_words // 2:
+            prefix = crumbs[-1] if crumbs else ""
+        if len(prefix.split()) > max_words // 2:
+            prefix = ""
+        budget = max(1, max_words - len(prefix.split()))
+        for piece in _pack(sentences, budget):
+            chunks.append(f"{prefix}: {piece}" if prefix else piece)
     return chunks
 
 

@@ -72,6 +72,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     run.add_argument(
         "--baseline", default=None, help="strategy for paired hit@k differences (needs --bootstrap)"
     )
+    run.add_argument(
+        "--cluster",
+        action="store_true",
+        help="bootstrap over documents instead of questions (needs --bootstrap)",
+    )
     run.add_argument("--format", choices=["table", "md", "json"], default="table")
 
     args = parser.parse_args(argv)
@@ -97,6 +102,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 bootstrap=args.bootstrap,
                 seed=args.seed,
                 baseline=args.baseline,
+                cluster=args.cluster,
             ):
                 rows.append({"max_words": budget, **row})
     except KeyError as exc:

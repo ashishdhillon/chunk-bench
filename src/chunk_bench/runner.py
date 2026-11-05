@@ -41,6 +41,7 @@ def run_benchmark(
     bootstrap: int = 0,
     seed: int = 0,
     baseline: Optional[str] = None,
+    cluster: bool = False,
 ) -> List[Dict[str, Any]]:
     """Return one result row per strategy.
 
@@ -56,7 +57,11 @@ def run_benchmark(
     percentile interval from N resamples of the questions. All strategies share
     the same resamples, so with ``baseline`` set, ``d_hit@<k>`` (k = largest) is
     a *paired* difference against the baseline strategy with its own interval.
-    The intervals only capture question-sampling noise for this one dataset.
+    With ``cluster=True`` the resampling unit is the *document*: each resample
+    draws documents with replacement and keeps all of their questions, which
+    respects the dependence between questions from one document. With few
+    documents these intervals are wide, and that is the honest answer.
+    The intervals only capture sampling noise for this one dataset.
     """
     if baseline is not None and baseline not in strategies:
         raise ValueError(f"baseline {baseline!r} must be one of the benchmarked strategies")
@@ -94,7 +99,17 @@ def run_benchmark(
     all_idx = list(range(n_q))
 
     rng = random.Random(seed)
-    resamples = [[rng.randrange(n_q) for _ in range(n_q)] for _ in range(bootstrap)]
+    if cluster:
+        by_doc: Dict[Any, List[int]] = {}
+        for i, q in enumerate(dataset["questions"]):
+            by_doc.setdefault(q["doc_id"], []).append(i)
+        groups = [by_doc[d] for d in sorted(by_doc, key=str)]
+        resamples = [
+            [i for g in (rng.choice(groups) for _ in groups) for i in g]
+            for _ in range(bootstrap)
+        ]
+    else:
+        resamples = [[rng.randrange(n_q) for _ in range(n_q)] for _ in range(bootstrap)]
 
     rows: List[Dict[str, Any]] = []
     for name in strategies:

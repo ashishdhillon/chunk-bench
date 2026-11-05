@@ -161,3 +161,31 @@ def test_cli_json(capsys):
 
 def test_cli_unknown_strategy():
     assert main(["run", "--strategies", "nope"]) == 2
+
+
+def test_structure_prefix_counts_toward_budget():
+    from chunk_bench.strategies import get_strategy
+
+    for doc in load_dataset("k8s-docs")["documents"]:
+        for chunk in get_strategy("structure")(doc["text"], 40):
+            # allow one oversized unsplittable sentence (packer emits it alone)
+            assert len(chunk.split()) <= 40 or ": " in chunk and len(chunk.split()) <= 80
+
+
+def test_clustered_bootstrap_is_seeded_and_valid():
+    data = load_dataset("k8s-docs")
+    names = ["fixed", "structure"]
+    kw = dict(max_words=80, bootstrap=200, seed=1, baseline="fixed")
+    a = run_benchmark(data, names, cluster=True, **kw)
+    b = run_benchmark(data, names, cluster=True, **kw)
+    assert a == b
+    for row in a:
+        lo, hi = row["hit@3_ci"]
+        assert lo <= row["hit@3"] <= hi
+    assert a[0]["d_hit@3"] == 0.0
+
+
+def test_cli_cluster_flag(capsys):
+    argv = ["run", "--strategies", "fixed,structure", "--bootstrap", "50",
+            "--baseline", "fixed", "--cluster"]
+    assert main(argv) == 0
