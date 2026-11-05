@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chunk-bench"
+version = "0.1.0"
+description = "A small, reproducible benchmark for RAG chunking strategies."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Ashish Dhillon" }]
+keywords = ["rag", "chunking", "benchmark", "retrieval", "llm", "evaluation"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+chunk-bench = "chunk_bench.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ashishdhillon/chunk-bench"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chunk_bench"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

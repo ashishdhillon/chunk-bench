@@ -1,0 +1,34 @@
+{
+  "name": "sample",
+  "documents": [
+    {
+      "id": "returns",
+      "text": "# Acme Returns Handbook\n\n## Eligibility\n\nCustomers may return unused items within 30 days of delivery. Items must be in original packaging with all accessories included. Gift cards and downloadable software cannot be returned under any circumstances.\n\n## Refund Timeline\n\nRefunds are issued to the original payment method within 7 business days after the warehouse inspects the item. Store credit is issued instantly when the customer selects that option at checkout. International orders may take up to 21 days because of customs processing.\n\n## Damaged Items\n\nIf an item arrives damaged, photograph the box and the product within 48 hours. Upload the photos in the claims portal to receive a prepaid replacement label. Damaged-item claims are never charged a restocking fee.\n\n## Restocking Fees\n\nOpened electronics carry a restocking fee of 15 percent of the purchase price. Furniture returns require a pickup appointment and incur a flat fee of 40 dollars. Clothing returns are free when sent back through any partner drop-off point."
+    },
+    {
+      "id": "vaultctl",
+      "text": "# vaultctl Command Guide\n\n## Installation\n\nInstall vaultctl with pip and verify the version using the version subcommand. The tool requires Python 3.10 or newer. On Windows, run the installer from an elevated terminal.\n\n## Authentication\n\nRun vaultctl login to open the browser based sign in flow. Tokens are stored in the system keyring and expire after 12 hours. Set the VAULT_TOKEN environment variable to skip the interactive flow in CI pipelines.\n\n## Secrets\n\nUse vaultctl put with a path and value to create a secret. Secrets are versioned and the last 10 versions are retained. Deleting a secret is a soft delete that can be undone for 30 days using vaultctl restore.\n\n## Troubleshooting\n\nIf login fails with error 401, clear the keyring entry and sign in again. A 429 response means the rate limit of 60 requests per minute was exceeded. Enable verbose logging with the debug flag to capture request identifiers for support."
+    },
+    {
+      "id": "solar",
+      "text": "# Rooftop Solar Care\n\n## Cleaning\n\nClean panels twice a year using soft water and a non abrasive brush. Avoid cleaning in direct midday sun because cold water on hot glass can cause cracks. Dust accumulation can reduce output by up to 25 percent in dry regions.\n\n## Inverter Checks\n\nInspect the inverter display weekly for fault codes. A blinking red light indicates a ground fault that needs a licensed electrician. Most string inverters last about 12 years before replacement.\n\n## Seasonal Tilt\n\nAdjustable mounts should be set to roughly the local latitude plus 15 degrees in winter. In summer subtract 15 degrees from the latitude for peak yield. Fixed mounts should simply match the latitude."
+    }
+  ],
+  "questions": [
+    {"question": "How many days do customers have to return unused items?", "doc_id": "returns", "evidence": "within 30 days of delivery"},
+    {"question": "How long until a refund reaches the original payment method?", "doc_id": "returns", "evidence": "within 7 business days after the warehouse inspects the item"},
+    {"question": "Why can international refunds take up to 21 days?", "doc_id": "returns", "evidence": "because of customs processing"},
+    {"question": "What is the restocking fee on opened electronics?", "doc_id": "returns", "evidence": "restocking fee of 15 percent of the purchase price"},
+    {"question": "What is the flat fee for furniture returns that need a pickup?", "doc_id": "returns", "evidence": "flat fee of 40 dollars"},
+    {"question": "How soon must photos of a damaged item be taken?", "doc_id": "returns", "evidence": "within 48 hours"},
+    {"question": "How long do vaultctl tokens last before they expire?", "doc_id": "vaultctl", "evidence": "expire after 12 hours"},
+    {"question": "Which environment variable skips the interactive login in CI?", "doc_id": "vaultctl", "evidence": "Set the VAULT_TOKEN environment variable"},
+    {"question": "How many secret versions are retained?", "doc_id": "vaultctl", "evidence": "the last 10 versions are retained"},
+    {"question": "What does a 429 response mean?", "doc_id": "vaultctl", "evidence": "rate limit of 60 requests per minute was exceeded"},
+    {"question": "What is the minimum Python version for vaultctl?", "doc_id": "vaultctl", "evidence": "requires Python 3.10 or newer"},
+    {"question": "How much can dust reduce solar output in dry regions?", "doc_id": "solar", "evidence": "reduce output by up to 25 percent"},
+    {"question": "What does a blinking red light on the inverter indicate?", "doc_id": "solar", "evidence": "blinking red light indicates a ground fault"},
+    {"question": "How many years do string inverters typically last?", "doc_id": "solar", "evidence": "last about 12 years"},
+    {"question": "What winter tilt should adjustable mounts use?", "doc_id": "solar", "evidence": "local latitude plus 15 degrees in winter"}
+  ]
+}
