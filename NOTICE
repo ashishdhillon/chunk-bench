@@ -1,7 +1,8 @@
 The `k8s-docs` dataset (src/chunk_bench/data/k8s-docs.json) contains text derived
 from the Kubernetes documentation (https://github.com/kubernetes/website,
 content/en/docs/concepts/configuration/configmap.md and
-content/en/docs/concepts/workloads/pods/_index.md).
+content/en/docs/concepts/workloads/pods/_index.md and
+content/en/docs/concepts/workloads/controllers/deployment.md).
 
 Copyright The Kubernetes Authors / The Linux Foundation.
 Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0):

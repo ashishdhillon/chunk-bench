@@ -48,7 +48,7 @@ def test_sample_dataset_is_valid():
 
 def test_k8s_dataset_is_valid_and_separates_budgets():
     data = load_dataset("k8s-docs")
-    assert len(data["questions"]) >= 30
+    assert len(data["questions"]) >= 60
     small = run_benchmark(data, ["fixed"], max_words=40)[0]
     large = run_benchmark(data, ["fixed"], max_words=160)[0]
     assert small["chunks"] > large["chunks"]
