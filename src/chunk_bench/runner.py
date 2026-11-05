@@ -7,7 +7,7 @@ import warnings
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .datasets import normalize
-from .retrieval import BM25
+from .retrieval import build_retriever
 from .strategies import get_strategy
 
 MAX_RANK = 5
@@ -43,6 +43,8 @@ def run_benchmark(
     seed: int = 0,
     baseline: Optional[str] = None,
     cluster: bool = False,
+    retriever: str = "bm25",
+    embed=None,
 ) -> List[Dict[str, Any]]:
     """Return one result row per strategy.
 
@@ -58,6 +60,11 @@ def run_benchmark(
     percentile interval from N resamples of the questions. All strategies share
     the same resamples, so with ``baseline`` set, ``d_hit@<k>`` (k = largest) is
     a *paired* difference against the baseline strategy with its own interval.
+    ``retriever`` is ``bm25`` (default, dependency-free), ``dense`` or ``hybrid``
+    (BM25 + dense fused by reciprocal rank fusion). The latter two use ``embed``,
+    a callable mapping a list of texts to vectors; if omitted, the optional
+    sentence-transformers backend is loaded (``pip install "chunk-bench[dense]"``).
+
     With ``cluster=True`` the resampling unit is the *document*: each resample
     draws documents with replacement and keeps all of their questions, which
     respects the dependence between questions from one document. With few
@@ -77,7 +84,7 @@ def run_benchmark(
         chunks: List[str] = []
         for doc in dataset["documents"]:
             chunks.extend(strategy(doc["text"], max_words))
-        index = BM25(chunks)
+        index = build_retriever(retriever, chunks, embed)
         norm_chunks = [normalize(c) for c in chunks]
 
         firsts: List[Optional[int]] = []

@@ -8,6 +8,7 @@ import sys
 from typing import List, Optional
 
 from .datasets import load_dataset
+from .retrieval import load_embedder
 from .runner import run_benchmark
 from .strategies import available_strategies
 
@@ -73,6 +74,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--baseline", default=None, help="strategy for paired hit@k differences (needs --bootstrap)"
     )
     run.add_argument(
+        "--retriever",
+        choices=["bm25", "dense", "hybrid"],
+        default="bm25",
+        help="retrieval backend; dense/hybrid need the [dense] extra and download a model",
+    )
+    run.add_argument(
+        "--embedder",
+        default=None,
+        help="sentence-transformers model name for dense/hybrid (default all-MiniLM-L6-v2)",
+    )
+    run.add_argument(
         "--cluster",
         action="store_true",
         help="bootstrap over documents instead of questions (needs --bootstrap)",
@@ -92,6 +104,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     except ValueError:
         print("--max-words must be integers, e.g. 40 or 40,80,160", file=sys.stderr)
         return 2
+    embed = None
+    if args.retriever != "bm25":
+        try:
+            embed = load_embedder(args.embedder) if args.embedder else load_embedder()
+        except ImportError as exc:
+            print(exc, file=sys.stderr)
+            return 2
     rows: List[dict] = []
     try:
         for budget in budgets:
@@ -103,6 +122,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 seed=args.seed,
                 baseline=args.baseline,
                 cluster=args.cluster,
+                retriever=args.retriever,
+                embed=embed,
             ):
                 rows.append({"max_words": budget, **row})
     except KeyError as exc:

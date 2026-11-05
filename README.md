@@ -26,6 +26,21 @@ chunk-bench run --max-words 40 --format md
 - **mrr**: mean reciprocal rank of the first evidence-bearing chunk (top 5).
 - **chunks / avg_words**: index size and chunk granularity.
 
+## Retrievers
+
+| `--retriever` | what it does |
+|---|---|
+| `bm25` (default) | dependency-free BM25, no downloads |
+| `dense` | cosine similarity over sentence embeddings (default model `all-MiniLM-L6-v2`) |
+| `hybrid` | BM25 and dense rankings fused with reciprocal rank fusion (k = 60) |
+
+```bash
+pip install -e ".[dense]"          # adds sentence-transformers
+chunk-bench run --dataset docker-docs --retriever hybrid --max-words 80,160 --bootstrap 2000 --baseline fixed --format md
+```
+
+The dense and hybrid backends are tested with a stub embedder; the first run downloads the model weights. No dense or hybrid results are published here yet, because they have not been run with the real model.
+
 ## Add your own strategy
 
 ```python
@@ -128,8 +143,9 @@ It is **not** the SDCA algorithm. SDCA (Structure-Aware Document Chunking, from 
 - [x] First real dataset (`k8s-docs`, 113 questions over 5 pages)
 - [x] Bootstrap confidence intervals and paired differences (`--bootstrap`, `--baseline`)
 - [x] Document-clustered bootstrap (`--cluster`)
+- [x] Second corpus (`docker-docs`)
 - [ ] More and larger structured corpora (more doc pages, HTML, PDF-to-markdown)
-- [ ] Embedding-based retrieval backend (optional extra)
+- [x] Dense and hybrid retrieval backends (optional extra; results with the real model still to run)
 - [ ] Answer-level evaluation with an LLM judge (optional extra)
 - [ ] Results table and hosted leaderboard
 - [ ] PyPI release

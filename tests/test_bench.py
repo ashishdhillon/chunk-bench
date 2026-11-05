@@ -203,3 +203,55 @@ def test_cluster_warns_with_few_documents():
 
     with pytest.warns(UserWarning, match="few distinct"):
         run_benchmark(load_dataset("docker-docs"), ["fixed"], bootstrap=20, cluster=True)
+
+
+def _hash_embed(texts, dim=64):
+    """Deterministic stub embedder (hashed bag of words) so tests need no model."""
+    import zlib
+
+    from chunk_bench.retrieval import tokenize
+
+    out = []
+    for text in texts:
+        vec = [0.0] * dim
+        for tok in tokenize(text):
+            vec[zlib.crc32(tok.encode()) % dim] += 1.0
+        out.append(vec)
+    return out
+
+
+def test_dense_and_hybrid_retrievers_with_stub_embedder():
+    from chunk_bench.retrieval import build_retriever
+
+    docs = ["the cat sat on the mat", "stock markets fell sharply today", "a dog chased the cat"]
+    for name in ("dense", "hybrid"):
+        index = build_retriever(name, docs, _hash_embed)
+        top = index.top_k("where did the cat sit", 3)
+        assert [i for i, _ in top][0] == 0
+        assert len(top) == 3
+
+
+def test_runner_accepts_retriever_and_rejects_unknown():
+    import pytest
+
+    data = load_dataset("sample")
+    for name in ("dense", "hybrid"):
+        rows = run_benchmark(data, ["fixed", "sdca_lite"], max_words=40, retriever=name, embed=_hash_embed)
+        assert all(0.0 <= r["hit@3"] <= 1.0 for r in rows)
+    with pytest.raises(ValueError):
+        run_benchmark(data, ["fixed"], retriever="nope")
+
+
+def test_cli_dense_without_extra_fails_cleanly(capsys, monkeypatch):
+    import builtins
+
+    real = builtins.__import__
+
+    def fake(name, *a, **k):
+        if name == "sentence_transformers":
+            raise ImportError("missing")
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake)
+    assert main(["run", "--retriever", "dense", "--strategies", "fixed"]) == 2
+    assert "chunk-bench[dense]" in capsys.readouterr().err

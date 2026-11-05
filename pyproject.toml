@@ -20,6 +20,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+dense = ["sentence-transformers>=2.2"]
 
 [project.scripts]
 chunk-bench = "chunk_bench.cli:main"
