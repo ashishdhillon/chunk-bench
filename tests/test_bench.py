@@ -31,6 +31,43 @@ def test_structure_prefixes_heading_path():
     assert chunks[1].startswith("Title > B:")
 
 
+DOC = (
+    "# Guide\n\n## Alpha\n\nAlpha one two three four. Alpha five six seven eight.\n\n"
+    "Alpha nine ten eleven twelve.\n\n## Beta\n\nBeta one two. Beta three four.\n"
+)
+
+
+def test_sdca_lite_never_crosses_sections_and_binds_breadcrumb():
+    chunks = get_strategy("sdca_lite")(DOC, 20)
+    assert all(("Alpha" in c) != ("Beta" in c) for c in chunks)
+    assert chunks[0].startswith("Guide > Alpha:")
+    assert chunks[-1].startswith("Guide > Beta:")
+
+
+def test_sdca_lite_keeps_paragraphs_whole_when_they_fit():
+    chunks = get_strategy("sdca_lite")(DOC, 14)
+    joined = " | ".join(chunks)
+    assert "Alpha nine ten eleven twelve." in joined
+    assert not any(c.endswith("Alpha nine") for c in chunks)
+
+
+def test_sdca_lite_budget_counts_the_breadcrumb():
+    for c in get_strategy("sdca_lite")(DOC, 12):
+        assert len(c.replace(">", " ").replace(":", " ").split()) <= 12 + 1
+
+
+def test_sdca_lite_merges_short_tail_within_section():
+    text = "## S\n\nOne two three four five six seven eight nine.\n\nTen.\n"
+    assert len(get_strategy("sdca_lite")(text, 40)) == 1
+
+
+def test_sdca_lite_splits_oversized_paragraph_at_sentences():
+    text = "## S\n\n" + " ".join(f"Sentence {i} has five words." for i in range(10))
+    chunks = get_strategy("sdca_lite")(text, 20)
+    assert len(chunks) > 1
+    assert all(c.rstrip().endswith(".") for c in chunks)
+
+
 def test_empty_text():
     assert get_strategy("fixed")("", 10) == []
 

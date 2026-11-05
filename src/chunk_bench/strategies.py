@@ -151,3 +151,94 @@ def structure(text: str, max_words: int) -> List[str]:
         for piece in _pack(sentences, max_words):
             chunks.append(f"{heading}: {piece}" if heading else piece)
     return chunks
+
+
+def _sections(text: str) -> List[tuple]:
+    """Parse markdown into ``(breadcrumb_list, paragraphs)`` sections.
+
+    Paragraphs are runs of non-blank lines; a heading line always starts a new
+    section, even without a blank line before it.
+    """
+    path: List[str] = []
+    sections: List[tuple] = []
+    paragraphs: List[str] = []
+    lines: List[str] = []
+
+    def end_paragraph() -> None:
+        if lines:
+            paragraphs.append(" ".join(" ".join(lines).split()))
+            lines.clear()
+
+    def end_section() -> None:
+        end_paragraph()
+        if paragraphs:
+            sections.append((list(path), list(paragraphs)))
+        paragraphs.clear()
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        match = _HEADING.match(line)
+        if match:
+            end_section()
+            level = len(match.group(1))
+            path[:] = path[: level - 1] + [match.group(2).strip()]
+        elif not line:
+            end_paragraph()
+        else:
+            lines.append(line)
+    end_section()
+    return sections
+
+
+@register_strategy("sdca_lite")
+def sdca_lite(text: str, max_words: int) -> List[str]:
+    """Markdown re-implementation of the *ideas* behind structure-aware chunking.
+
+    Not the full SDCA algorithm: that one reads PDF font geometry, which plain
+    text does not have. This keeps what carries over to markdown:
+
+    1. Section boundaries are hard: chunks never span two sections.
+    2. Paragraphs are kept whole; a paragraph is only split (at sentence
+       boundaries) when it alone exceeds the budget.
+    3. The heading breadcrumb is bound to every chunk of the section, and it
+       counts against the word budget (so budgets stay comparable with the
+       other strategies).
+    4. A short tail chunk is merged into the previous chunk of the same
+       section when the result still fits (minimum size = budget / 3).
+    """
+    min_words = max(1, max_words // 3)
+    chunks: List[str] = []
+    for crumbs, paragraphs in _sections(text):
+        prefix = " > ".join(crumbs)
+        if len(prefix.split()) > max_words // 2:
+            prefix = crumbs[-1] if crumbs else ""
+        if len(prefix.split()) > max_words // 2:
+            prefix = ""
+        budget = max(1, max_words - len(prefix.split()))
+
+        units: List[str] = []
+        for paragraph in paragraphs:
+            if len(paragraph.split()) > budget:
+                units.extend(_pack(_sentences(paragraph), budget))
+            else:
+                units.append(paragraph)
+
+        bodies: List[str] = []
+        current: List[str] = []
+        count = 0
+        for unit in units:
+            n = len(unit.split())
+            if current and count + n > budget:
+                bodies.append(" ".join(current))
+                current, count = [], 0
+            current.append(unit)
+            count += n
+        if current:
+            bodies.append(" ".join(current))
+
+        if len(bodies) > 1 and len(bodies[-1].split()) < min_words:
+            if len(bodies[-2].split()) + len(bodies[-1].split()) <= budget:
+                bodies[-2] = bodies[-2] + " " + bodies.pop()
+
+        chunks.extend(f"{prefix}: {b}" if prefix else b for b in bodies)
+    return chunks
