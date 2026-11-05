@@ -48,7 +48,7 @@ JSON with `documents` (`id`, `text`) and `questions` (`question`, `doc_id`, `evi
 | name | contents |
 |---|---|
 | `sample` | 3 short synthetic docs, 15 questions. A smoke test only: every strategy scores about 1.0. |
-| `k8s-docs` | 3 real Kubernetes concept pages (ConfigMaps, Pods, Deployments), 60 questions with verbatim evidence spans. Source and license: see [NOTICE](NOTICE). |
+| `k8s-docs` | 5 real Kubernetes concept pages (ConfigMaps, Pods, Deployments, Services, Persistent Volumes), 113 questions with verbatim evidence spans. Source and license: see [NOTICE](NOTICE). |
 
 ## First results (`k8s-docs`, BM25)
 
@@ -58,24 +58,25 @@ chunk-bench run --dataset k8s-docs --max-words 40,80,160 --format md
 
 | max_words | strategy | chunks | avg_words | hit@1 | hit@3 | mrr |
 |---|---|---|---|---|---|---|
-| 40 | fixed | 331 | 39.9 | 0.5 | 0.683 | 0.616 |
-| 40 | recursive | 525 | 20.1 | 0.583 | 0.717 | 0.654 |
-| 40 | sentence | 310 | 34.1 | 0.567 | 0.717 | 0.651 |
-| 40 | structure | 327 | 40.3 | 0.533 | 0.717 | 0.63 |
-| 80 | fixed | 166 | 79.4 | 0.633 | 0.817 | 0.733 |
-| 80 | recursive | 429 | 24.7 | 0.65 | 0.783 | 0.728 |
-| 80 | sentence | 143 | 74.0 | 0.667 | 0.85 | 0.759 |
-| 80 | structure | 167 | 70.6 | 0.65 | 0.85 | 0.758 |
-| 160 | fixed | 84 | 156.8 | 0.717 | 0.867 | 0.792 |
-| 160 | recursive | 407 | 26.0 | 0.667 | 0.8 | 0.738 |
-| 160 | sentence | 70 | 151.1 | 0.7 | 0.867 | 0.792 |
-| 160 | structure | 100 | 111.9 | 0.75 | 0.9 | 0.832 |
+| 40 | fixed | 695 | 39.9 | 0.522 | 0.708 | 0.619 |
+| 40 | recursive | 1078 | 20.6 | 0.584 | 0.743 | 0.677 |
+| 40 | sentence | 643 | 34.5 | 0.513 | 0.655 | 0.594 |
+| 40 | structure | 686 | 40.9 | 0.566 | 0.743 | 0.653 |
+| 80 | fixed | 349 | 79.4 | 0.664 | 0.841 | 0.753 |
+| 80 | recursive | 860 | 25.8 | 0.611 | 0.823 | 0.722 |
+| 80 | sentence | 298 | 74.5 | 0.655 | 0.788 | 0.726 |
+| 80 | structure | 362 | 69.0 | 0.69 | 0.867 | 0.785 |
+| 160 | fixed | 175 | 158.0 | 0.717 | 0.858 | 0.785 |
+| 160 | recursive | 823 | 27.0 | 0.619 | 0.832 | 0.726 |
+| 160 | sentence | 146 | 152.1 | 0.69 | 0.876 | 0.777 |
+| 160 | structure | 226 | 104.7 | 0.761 | 0.903 | 0.833 |
 
-**Read these with care.** There are only 60 questions, so one question is about 1.7 points of hit rate; gaps of a few points are noise, not a ranking. Going from 2 to 3 documents already reshuffled the order: `recursive` led at small budgets and `structure` leads at 160 words here, but neither gap is large. The consistent signal is that hit@k rises with chunk size for every strategy, and that the strategies stay within a few points of each other. More documents and questions are needed before drawing conclusions.
+**Read these with care.** 113 questions means one question is about 0.9 points of hit rate, and the dataset is one documentation family, so this says little about other corpora. The ranking has been unstable as the dataset grew (it changed from 2 to 3 to 5 pages), which is a warning against reading much into any single table. In this run the heading-aware `structure` baseline is ahead at 80 and 160 words (hit@3 0.867 and 0.903 against 0.841 and 0.858 for `fixed`), `recursive` is ahead at 40 words, and all strategies improve with larger chunks. I have not tested why; one untested guess is that the heading prefix adds useful keywords for BM25. Bootstrap confidence intervals and more corpora are the next step before any claim is made.
 
 ## Roadmap
 
-- [x] First real dataset (`k8s-docs`, 60 questions)
+- [x] First real dataset (`k8s-docs`, 113 questions over 5 pages)
+- [ ] Bootstrap confidence intervals on every metric
 - [ ] More and larger structured corpora (more doc pages, HTML, PDF-to-markdown)
 - [ ] Embedding-based retrieval backend (optional extra)
 - [ ] Answer-level evaluation with an LLM judge (optional extra)
