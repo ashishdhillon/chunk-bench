@@ -12,9 +12,33 @@ from .runner import run_benchmark
 from .strategies import available_strategies
 
 
+def _humanize(rows: List[dict]) -> List[dict]:
+    """Fold ``<metric>_ci`` entries into the metric cell, e.g. ``0.903 [0.85, 0.95]``.
+
+    Paired differences (``d_*``) get a ``*`` when the interval excludes zero.
+    """
+    out = []
+    for row in rows:
+        new = {}
+        for key, value in row.items():
+            if key.endswith("_ci"):
+                continue
+            ci = row.get(f"{key}_ci")
+            if ci is None:
+                new[key] = value
+            elif key.startswith("d_"):
+                star = "*" if ci[0] > 0 or ci[1] < 0 else ""
+                new[key] = f"{value:+.3f} [{ci[0]:+.3f}, {ci[1]:+.3f}]{star}"
+            else:
+                new[key] = f"{value:.3f} [{ci[0]:.3f}, {ci[1]:.3f}]"
+        out.append(new)
+    return out
+
+
 def _format_rows(rows: List[dict], fmt: str) -> str:
     if fmt == "json":
         return json.dumps(rows, indent=2)
+    rows = _humanize(rows)
     headers = list(rows[0].keys())
     if fmt == "md":
         lines = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
@@ -41,6 +65,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     run.add_argument(
         "--max-words", default="40", help="chunk word budget; comma-separated to sweep, e.g. 40,80,160"
     )
+    run.add_argument(
+        "--bootstrap", type=int, default=0, help="bootstrap resamples for 95%% CIs (0 = off)"
+    )
+    run.add_argument("--seed", type=int, default=0, help="seed for the bootstrap resamples")
+    run.add_argument(
+        "--baseline", default=None, help="strategy for paired hit@k differences (needs --bootstrap)"
+    )
     run.add_argument("--format", choices=["table", "md", "json"], default="table")
 
     args = parser.parse_args(argv)
@@ -59,10 +90,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     rows: List[dict] = []
     try:
         for budget in budgets:
-            for row in run_benchmark(dataset, names, max_words=budget):
+            for row in run_benchmark(
+                dataset,
+                names,
+                max_words=budget,
+                bootstrap=args.bootstrap,
+                seed=args.seed,
+                baseline=args.baseline,
+            ):
                 rows.append({"max_words": budget, **row})
     except KeyError as exc:
         print(exc.args[0], file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
         return 2
     print(_format_rows(rows, args.format))
     return 0

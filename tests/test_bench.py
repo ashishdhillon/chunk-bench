@@ -60,6 +60,32 @@ def test_cli_budget_sweep(capsys):
     assert [r["max_words"] for r in rows] == [20, 40]
 
 
+def test_bootstrap_intervals_are_sane_and_seeded():
+    data = load_dataset("sample")
+    names = ["fixed", "structure"]
+    a = run_benchmark(data, names, max_words=40, bootstrap=200, seed=1, baseline="fixed")
+    b = run_benchmark(data, names, max_words=40, bootstrap=200, seed=1, baseline="fixed")
+    assert a == b
+    for row in a:
+        for key in ("hit@1", "hit@3", "mrr"):
+            lo, hi = row[f"{key}_ci"]
+            assert 0.0 <= lo <= hi <= 1.0
+    base = a[0]
+    assert base["d_hit@3"] == 0.0 and base["d_hit@3_ci"] == [0.0, 0.0]
+
+
+def test_baseline_must_be_benchmarked():
+    with pytest.raises(ValueError):
+        run_benchmark(load_dataset("sample"), ["fixed"], baseline="structure", bootstrap=10)
+
+
+def test_cli_bootstrap_table(capsys):
+    argv = ["run", "--strategies", "fixed,structure", "--bootstrap", "50", "--baseline", "fixed"]
+    assert main(argv + ["--format", "md"]) == 0
+    out = capsys.readouterr().out
+    assert "d_hit@3" in out and "[" in out
+
+
 def test_invalid_evidence_rejected(tmp_path):
     bad = {
         "documents": [{"id": "d", "text": "hello world"}],

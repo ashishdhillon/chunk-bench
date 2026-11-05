@@ -1,8 +1,9 @@
-"""Benchmark runner: chunk -> index -> retrieve -> score."""
+"""Benchmark runner: chunk -> index -> retrieve -> score (+ optional bootstrap CIs)."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence
+import random
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .datasets import normalize
 from .retrieval import BM25
@@ -10,12 +11,36 @@ from .strategies import get_strategy
 
 MAX_RANK = 5
 
+Stat = Callable[[Optional[int]], float]
+
+
+def _hit(k: int) -> Stat:
+    return lambda first: 1.0 if first is not None and first <= k else 0.0
+
+
+def _rr(first: Optional[int]) -> float:
+    return 1.0 / first if first is not None and first <= MAX_RANK else 0.0
+
+
+def _mean(firsts: Sequence[Optional[int]], idx: Sequence[int], stat: Stat) -> float:
+    return sum(stat(firsts[i]) for i in idx) / len(idx)
+
+
+def _interval(values: List[float]) -> List[float]:
+    values = sorted(values)
+    lo = values[int(0.025 * (len(values) - 1))]
+    hi = values[int(round(0.975 * (len(values) - 1)))]
+    return [round(lo, 3), round(hi, 3)]
+
 
 def run_benchmark(
     dataset: Dict[str, Any],
     strategies: Sequence[str],
     max_words: int = 40,
     ks: Sequence[int] = (1, 3),
+    bootstrap: int = 0,
+    seed: int = 0,
+    baseline: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Return one result row per strategy.
 
@@ -26,8 +51,21 @@ def run_benchmark(
         bad chunking causes.
       * ``mrr``: mean reciprocal rank of the first evidence-bearing chunk
         within the top 5.
+
+    With ``bootstrap=N`` each metric also gets a ``<metric>_ci`` entry: a 95%
+    percentile interval from N resamples of the questions. All strategies share
+    the same resamples, so with ``baseline`` set, ``d_hit@<k>`` (k = largest) is
+    a *paired* difference against the baseline strategy with its own interval.
+    The intervals only capture question-sampling noise for this one dataset.
     """
-    rows: List[Dict[str, Any]] = []
+    if baseline is not None and baseline not in strategies:
+        raise ValueError(f"baseline {baseline!r} must be one of the benchmarked strategies")
+
+    n_q = len(dataset["questions"])
+    top = max(max(ks), MAX_RANK)
+
+    firsts_by_strategy: Dict[str, List[Optional[int]]] = {}
+    stats_rows: Dict[str, Dict[str, Any]] = {}
     for name in strategies:
         strategy = get_strategy(name)
         chunks: List[str] = []
@@ -36,30 +74,46 @@ def run_benchmark(
         index = BM25(chunks)
         norm_chunks = [normalize(c) for c in chunks]
 
-        hits = {k: 0 for k in ks}
-        rr_total = 0.0
-        top = max(max(ks), MAX_RANK)
+        firsts: List[Optional[int]] = []
         for q in dataset["questions"]:
             evidence = normalize(q["evidence"])
             ranked = [i for i, _ in index.top_k(q["question"], top)]
-            first = next(
-                (r for r, i in enumerate(ranked, 1) if evidence in norm_chunks[i]), None
+            firsts.append(
+                next((r for r, i in enumerate(ranked, 1) if evidence in norm_chunks[i]), None)
             )
-            for k in ks:
-                if first is not None and first <= k:
-                    hits[k] += 1
-            if first is not None and first <= MAX_RANK:
-                rr_total += 1.0 / first
-
-        n_q = len(dataset["questions"])
+        firsts_by_strategy[name] = firsts
         lengths = [len(c.split()) for c in chunks]
-        row: Dict[str, Any] = {
+        stats_rows[name] = {
             "strategy": name,
             "chunks": len(chunks),
             "avg_words": round(sum(lengths) / len(lengths), 1) if lengths else 0.0,
         }
-        for k in ks:
-            row[f"hit@{k}"] = round(hits[k] / n_q, 3)
-        row["mrr"] = round(rr_total / n_q, 3)
+
+    metrics: Dict[str, Stat] = {f"hit@{k}": _hit(k) for k in ks}
+    metrics["mrr"] = _rr
+    all_idx = list(range(n_q))
+
+    rng = random.Random(seed)
+    resamples = [[rng.randrange(n_q) for _ in range(n_q)] for _ in range(bootstrap)]
+
+    rows: List[Dict[str, Any]] = []
+    for name in strategies:
+        firsts = firsts_by_strategy[name]
+        row = dict(stats_rows[name])
+        for metric, stat in metrics.items():
+            row[metric] = round(_mean(firsts, all_idx, stat), 3)
+        if bootstrap:
+            for metric, stat in metrics.items():
+                row[f"{metric}_ci"] = _interval([_mean(firsts, idx, stat) for idx in resamples])
+            if baseline is not None:
+                key = f"hit@{max(ks)}"
+                stat = metrics[key]
+                base = firsts_by_strategy[baseline]
+                row[f"d_{key}"] = round(
+                    _mean(firsts, all_idx, stat) - _mean(base, all_idx, stat), 3
+                )
+                row[f"d_{key}_ci"] = _interval(
+                    [_mean(firsts, idx, stat) - _mean(base, idx, stat) for idx in resamples]
+                )
         rows.append(row)
     return rows
