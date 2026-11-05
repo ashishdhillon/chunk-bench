@@ -20,7 +20,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-BUILTIN = {"sample": "sample.json", "k8s-docs": "k8s-docs.json"}
+BUILTIN = {"sample": "sample.json", "k8s-docs": "k8s-docs.json", "docker-docs": "docker-docs.json"}
 
 
 def normalize(text: str) -> str:

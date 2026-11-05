@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import warnings
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .datasets import normalize
@@ -104,6 +105,12 @@ def run_benchmark(
         for i, q in enumerate(dataset["questions"]):
             by_doc.setdefault(q["doc_id"], []).append(i)
         groups = [by_doc[d] for d in sorted(by_doc, key=str)]
+        if len(groups) < 10:
+            warnings.warn(
+                f"--cluster with only {len(groups)} documents: there are very few distinct "
+                "resamples, so intervals can be spuriously narrow or wide. Treat them as rough.",
+                stacklevel=2,
+            )
         resamples = [
             [i for g in (rng.choice(groups) for _ in groups) for i in g]
             for _ in range(bootstrap)

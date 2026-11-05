@@ -15,3 +15,7 @@ were removed, and one empty heading was restored. The questions and evidence
 annotations were written for this benchmark.
 
 The rest of this repository is under the MIT License (see LICENSE).
+
+---
+
+The `docker-docs` dataset (src/chunk_bench/data/docker-docs.json) contains text from the Docker documentation, https://github.com/docker/docs, licensed under the Apache License 2.0, Copyright Docker, Inc. Front matter, code blocks, shortcodes and link targets were removed, and questions were added. Licence text: https://www.apache.org/licenses/LICENSE-2.0

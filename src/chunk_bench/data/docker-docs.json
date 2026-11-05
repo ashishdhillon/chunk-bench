@@ -1,0 +1,600 @@
+{
+ "name": "docker-docs",
+ "description": "Questions over four Docker documentation pages (Compose networking, networking overview, volumes, build best practices); front matter, code blocks and shortcodes removed.",
+ "source": "https://github.com/docker/docs (content/manuals)",
+ "license": "Apache License 2.0, Copyright Docker, Inc.",
+ "documents": [
+  {
+   "id": "compose-net",
+   "title": "Networking in Compose",
+   "text": "Compose handles networking for you by default, but gives you fine-grained control when you need it. This page explains how the default network works and how containers discover each other by name. It also covers when and how to define custom networks, connect services across separate Compose projects, map custom hostnames, and debug connectivity issues.\n\n## Default network and service discovery\n\nBy default, Compose sets up a single network for your app. Each container for a service joins the default network and is both reachable by other containers on that network, and discoverable by its service name. This network uses the `bridge` driver. To attach services to a different Compose network or an external one, see Specify custom networks. To change how a service uses the host network stack (`network_mode: host`), see Change the network mode.\n\nFor most development setups, the default network is sufficient. When you run `docker compose up`, Compose creates a network named `_default` and attaches all services to it. Each service registers its name with an internal DNS server, so containers can reach each other using the service name directly. No IP addresses or manual configuration is needed.\n\nFor example, suppose your app is in a directory called `myapp`, and your `compose.yaml` looks like this:\n\nCompose automatically connects all services to the default network, so you don't need to define `networks` explicitly in the Compose file.\n\nWhen you run `docker compose up`, the following happens:\n\n1. A network called `myapp_default` is created.\n2. A container is created using `web`'s configuration. It joins `myapp_default` under the name `web`.\n3. A container is created using `db`'s configuration. It joins `myapp_default` under the name `db`.\n\nEach container can now look up the service name `web` or `db` and get back the appropriate container's IP address. The `web` service can connect to the database at `postgres://db:5432`. From the host machine, the same database is accessible at `postgres://localhost:8001` if your container is running locally.\n\n> [!TIP]\n>\n> Docker assigns container IP addresses dynamically from the network's subnet each time a container starts so they are not persisted across restarts or recreations. This means you should always reference services by name, not IP address. When containers are recreated, for example after a configuration change, they receive a new IP address. The service name stays stable.\n\nYour app's network is given a name based on the \"project name\", which is taken from the name of the directory it lives in. You can override the project name with either the `--project-name` flag or the `COMPOSE_PROJECT_NAME` environment variable.\n\nThe `HOST_PORT` and `CONTAINER_PORT` serve different purposes. In the example above, for `db`, the `HOST_PORT` is `8001` and the container port is `5432` (the Postgres default). Networked service-to-service communication uses the `CONTAINER_PORT`. The host port is only used when accessing the service from outside the network.\n\n### Updating containers on the network\n\nIf you make a configuration change to a service and run `docker compose up` to update it, the old container is removed and the new one joins the network under a different IP address but the same name. Running containers can look up that name and connect to the new address, but the old address stops working.\n\nIf any containers have connections open to the old container, they are closed. It is each container's responsibility to detect this condition, look up the name again, and reconnect.\n\n## Change the network mode\n\nBy default, each service joins the project's bridge network. It is the most secure networking mode. If you don't specify `network_mode`, this is the type of network you are creating.\n\nYou can override the networking mode on a per-service basis. The `network_mode` option accepts the following values:\n\n- `host`: The container shares the host's network stack. No port mapping is needed or supported, and service name DNS resolution does not work. Use for system-level tools like network monitors that require direct access to host interfaces. A container using `network_mode: host` can access all host ports and observe all network traffic on the host. Use it only when genuinely required.\n- `none`: Turns off all container networking.\n- `service:{name}`: Gives the container access to the specified container by referring to its service name.\n- `container:{name}`: Gives the container access to the specified container by referring to its container ID.\n\nYou can mix modes in a single project:\n\n## Specify custom networks\n\nInstead of just using the default app network, you can specify your own networks with the top-level `networks` key. This lets you create more complex topologies and specify custom network drivers and options. You can also use it to connect services to externally-created networks which aren't managed by Compose.\n\nEach service can specify what networks to connect to with the service-level `networks` key, which is a list of names referencing entries under the top-level `networks` key.\n\nThe following example shows a Compose file which defines two custom networks. The `proxy` service is isolated from the `db` service, because they do not share a network in common. Only `app` can talk to both.\n\nNetworks can be configured with static IP addresses by setting the ipv4_address and/or ipv6_address for each attached network.\n\nNetworks can also be given a custom name:\n\n### Internal networks\n\nSetting `internal: true` on a network creates it without a connection to the host's network interfaces. It has no default gateway for external connectivity. This is useful for services like databases that should be completely unreachable from outside the container network:\n\nNote that a service connected to both an internal and a non-internal network (like `worker` above) can still reach the internet via the non-internal network `public`.\n\n### Configure the default network\n\nInstead of, or as well as, specifying your own networks, you can also change the settings of the app-wide default network by defining an entry under `networks` named `default`:\n\n## Use an existing external network\n\nIf you've manually created a bridge network using `docker network create`, you can connect your Compose services to it by marking the network as `external`:\n\nInstead of creating `_default`, Compose looks for a network called `my-pre-existing-network` and connects your containers to it.\n\n### Connecting multiple Compose projects\n\nExternal networks are particularly useful when services in separate Compose projects need to communicate. Create a shared network once, then reference it as external in each project:\n\nbackend-compose.yaml:\n\nfrontend-compose.yaml:\n\nServices on the same external network can reach each other by service name, just like services within a single project.\n\n> [!IMPORTANT]\n>\n> The external network must exist before you run `docker compose up`. If it doesn't, Compose fails with a `Network not found` error. Always create it first with `docker network create`.\n\n## Hybrid networking\n\nA service can belong to both an external shared network and its own project-internal network. This lets you expose only the services that need to be reachable from other projects, while keeping everything else, such as databases, fully isolated:\n\n## Custom DNS with `extra_hosts`\n\nYou can add custom hostname-to-IP mappings to a container's `/etc/hosts` file using `extra_hosts`. This is useful when a service needs to resolve a hostname that isn't registered in Docker's internal DNS. For example, a fixed-IP dependency or a staging endpoint:\n\nTo map a hostname dynamically to the host machine's IP, use the special `host-gateway` value:\n\nOn Linux, `host-gateway` resolves to the host's IP on the default bridge network. On Mac and Windows, Docker automatically provides this, `host-gateway` resolves to the same internal IP address as `host.docker.internal`.\n\nYou can also drive `extra_hosts` from environment variables, which makes it easy to point services at different targets per environment:\n\nWhere `.env.development` might set `API_HOST=localhost` and a production env file might set `API_HOST=10.0.1.50`.\n\nTo verify what has been injected, inspect the hosts file inside the container:\n\n## Multi-host networking\n\nWhen deploying a Compose application on a Docker Engine with Swarm mode enabled, you can use the built-in `overlay` driver to enable multi-host communication. Overlay networks are always created as `attachable`. You can optionally set the `attachable` property to `false`.\n\nTo learn more, see the overlay network driver documentation.\n\n## Link containers\n\nLinks allow you to define extra aliases by which a service is reachable from another service. They are not required for basic service-to-service communication. By default, any service can reach any other service at that service's name. In the following example, `db` is reachable from `web` at both the hostnames `db` and `database`:\n\nSee the links reference for more information.\n\n## Debugging\n\nWhen a service can't reach another, work through the following steps in order: first confirm the network configuration looks right, then confirm the containers are actually attached, then test live connectivity.\n\n### Inspect port mappings\n\nTo find out which host port maps to a container port, use `docker compose port`:\n\nThis is especially useful when using dynamic port mapping, where the host port changes on every `docker compose up`:\n\nWhen you scale a service, each replica gets its own dynamic port. Use `--index` to query a specific replica:\n\nBy default, `docker compose port` looks for TCP mappings. If a service exposes both TCP and UDP on the same port, use `--protocol`:\n\n### Verify network membership\n\nTo check which containers are attached to a network (useful when troubleshooting connectivity across external or custom networks):\n\n### Check connectivity\n\nIf the network membership looks correct but services still can't reach each other, test connectivity from inside a running container using `docker compose exec`.\n\n## Further reference information\n\nFor full details of the network configuration options available, see the following references:\n\n- Top-level `networks` element\n- Service-level `networks` attribute"
+  },
+  {
+   "id": "net-overview",
+   "title": "Networking overview",
+   "text": "Container networking refers to the ability for containers to connect to and\ncommunicate with each other, and with non-Docker network services.\n\nContainers have networking enabled by default, and they can make outgoing\nconnections. A container has no information about what kind of network it's\nattached to, or whether its network peers are also Docker containers. A\ncontainer only sees a network interface with an IP address, a gateway, a\nrouting table, DNS services, and other networking details.\n\nThis page describes networking from the point of view of the container,\nand the concepts around container networking.\n\nWhen Docker Engine on Linux starts for the first time, it has a single\nbuilt-in network called the \"default bridge\" network. When you run a\ncontainer without the `--network` option, it is connected to the default\nbridge.\n\nContainers attached to the default bridge have access to network services\noutside the Docker host. They use \"masquerading\" which means, if the\nDocker host has Internet access, no additional configuration is needed\nfor the container to have Internet access.\n\nFor example, to run a container on the default bridge network, and have\nit ping an Internet host:\n\n## User-defined networks\n\nWith the default configuration, containers attached to the default\nbridge network have unrestricted network access to each other using\ncontainer IP addresses. They cannot refer to each other by name.\n\nIt can be useful to separate groups of containers that should have full\naccess to each other, but restricted access to containers in other groups.\n\nYou can create custom, user-defined networks, and connect groups of containers\nto the same network. Once connected to a user-defined network, containers\ncan communicate with each other using container IP addresses or container names.\n\nThe following example creates a network using the `bridge` network driver and\nruns a container in that network:\n\n### Drivers\n\nDocker Engine has a number of network drivers, as well as the default \"bridge\".\nOn Linux, the following built-in network drivers are available:\n\n| Driver                          | Description                                                         |\n| :------------------------------ | :------------------------------------------------------------------ |\n| bridge   | The default network driver.                                         |\n| host       | Remove network isolation between the container and the Docker host. |\n| none       | Completely isolate a container from the host and other containers.  |\n| overlay | Swarm Overlay networks connect multiple Docker daemons together.    |\n| ipvlan   | Connect containers to external VLANs.                               |\n| macvlan | Containers appear as devices on the host's network.                 |\n\nMore information can be found in the network driver specific pages, including\ntheir configuration options and details about their functionality.\n\nNative Windows containers have a different set of drivers, see\nWindows container network drivers.\n\n### Connecting to multiple networks\n\nConnecting a container to a network can be compared to connecting an Ethernet\ncable to a physical host. Just as a host can be connected to multiple Ethernet\nnetworks, a container can be connected to multiple Docker networks.\n\nFor example, a frontend container may be connected to a bridge network\nwith external access, and a\n`--internal` network\nto communicate with containers running backend services that do not need\nexternal network access.\n\nA container may also be connected to different types of network. For example,\nan `ipvlan` network to provide internet access, and a `bridge` network for\naccess to local services.\n\nContainers can also share networking stacks, see Container networks.\n\nWhen sending packets, if the destination is an address in a directly connected\nnetwork, packets are sent to that network. Otherwise, packets are sent to\na default gateway for routing to their destination. In the example above,\nthe `ipvlan` network's gateway must be the default gateway.\n\nThe default gateway is selected by Docker, and may change whenever a\ncontainer's network connections change.\nTo make Docker choose a specific default gateway when creating the container\nor connecting a new network, set a gateway priority. See option `gw-priority`\nfor the `docker run` and\n`docker network connect` commands.\n\nThe default `gw-priority` is `0` and the gateway in the network with the\nhighest priority is the default gateway. So, when a network should always\nbe the default gateway, it is enough to set its `gw-priority` to `1`.\n\n## Published ports\n\nWhen you create or run a container using `docker create` or `docker run`, all\nports of containers on bridge networks are accessible from the Docker host and\nother containers connected to the same network. Ports are not accessible from\noutside the host or, with the default configuration, from containers in other\nnetworks.\n\nUse the `--publish` or `-p` flag to make a port available outside the host,\nand to containers in other bridge networks.\n\nFor more information about port mapping, including how to disable it and use\ndirect routing to containers, see\nport publishing.\n\n## IP address and hostname\n\nWhen creating a network, IPv4 address allocation is enabled by default, it\ncan be disabled using `--ipv4=false`. IPv6 address allocation can be enabled\nusing `--ipv6`.\n\nBy default, the container gets an IP address for every Docker network it attaches to.\nA container receives an IP address out of the IP subnet of the network.\nThe Docker daemon performs dynamic subnetting and IP address allocation for containers.\nEach network also has a default subnet mask and gateway.\n\nYou can connect a running container to multiple networks,\neither by passing the `--network` flag multiple times when creating the container,\nor using the `docker network connect` command for already running containers.\nIn both cases, you can use the `--ip` or `--ip6` flags to specify the container's IP address on that particular network.\n\nIn the same way, a container's hostname defaults to be the container's ID in Docker.\nYou can override the hostname using `--hostname`.\nWhen connecting to an existing network using `docker network connect`,\nyou can use the `--alias` flag to specify an additional network alias for the container on that network.\n\n### Subnet allocation\n\nDocker networks can use either explicitly configured subnets or automatically allocated ones from default pools.\n\n#### Explicit subnet configuration\n\nYou can specify exact subnets when creating a network:\n\n#### Automatic subnet allocation\n\nWhen no `--subnet` option is provided, Docker automatically selects a subnet from predefined \"default address pools\".\nThese pools can be configured in `/etc/docker/daemon.json`. Docker's built-in default is equivalent to:\n\n- `base`: The subnet that can be allocated from.\n- `size`: The prefix length used for each allocated subnet.\n\nWhen an IPv6 subnet is required and there are no IPv6 addresses in `default-address-pools`, Docker allocates\nsubnets from a Unique Local Address (ULA) prefix. To use specific IPv6 subnets instead, add them to your\n`default-address-pools`. See Dynamic IPv6 subnet allocation\nfor more information.\n\nDocker attempts to avoid address prefixes already in use on the host. However, you may need to customize\n`default-address-pools` to prevent routing conflicts in some network environments.\n\nThe default pools use large subnets, which limits the number of networks you can create. You can divide base\nsubnets into smaller pools to support more networks.\n\nFor example, this configuration allows Docker to create 256 networks from `172.17.0.0/16`.\nDocker will allocate subnets `172.17.0.0/24`, `172.17.1.0/24`, and so on, up to `172.17.255.0/24`:\n\nYou can also request a subnet with a specific prefix length from the default pools by using unspecified\naddresses in the `--subnet` option:\n\n> [!NOTE]\n>\n> Support for unspecified addresses in `--subnet` was introduced in Docker 29.0.0.\n> If Docker is downgraded to an older version, networks created in this way will become unusable.\n> They can be removed and re-created, or will function again if the daemon is restored to 29.0.0 or later.\n\n## DNS services\n\nContainers use the same DNS servers as the host by default, but you can\noverride this with `--dns`.\n\nBy default, containers inherit the DNS settings as defined in the\n`/etc/resolv.conf` configuration file.\nContainers that attach to the default `bridge` network receive a copy of this file.\nContainers that attach to a\ncustom network\nuse Docker's embedded DNS server.\nThe embedded DNS server forwards external DNS lookups to the DNS servers configured on the host.\nThe embedded DNS server address is `127.0.0.11`.\nThere is no IPv6 equivalent; the IPv4 address works even in IPv6-only containers.\nIf an application requires an explicit DNS server address, use `127.0.0.11`.\n\n> [!NOTE]\n>\n> When you configure multiple DNS servers for a container on the default\n> `bridge` network, the container's resolver library determines how it queries\n> them. Some resolvers query the servers in order. Others query them in parallel\n> and use the first response received, even if that response is `NXDOMAIN`.\n> On a custom network, Docker's embedded DNS server queries upstream servers in\n> order and stops after a successful response or an `NXDOMAIN` response.\n\nYou can configure DNS resolution on a per-container basis, using flags for the\n`docker run` or `docker create` command used to start the container.\nThe following table describes the available `docker run` flags related to DNS\nconfiguration.\n\n| Flag           | Description                                                                                                                                                                                                                                           |\n| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| `--dns`        | The IP address of a DNS server. To specify multiple DNS servers, use multiple `--dns` flags. DNS requests will be forwarded from the container's network namespace so, for example, `--dns=127.0.0.1` refers to the container's own loopback address. |\n| `--dns-search` | A DNS search domain to search non-fully qualified hostnames. To specify multiple DNS search prefixes, use multiple `--dns-search` flags.                                                                                                              |\n| `--dns-opt`    | A key-value pair representing a DNS option and its value. See your operating system's documentation for `resolv.conf` for valid options.                                                                                                              |\n| `--hostname`   | The hostname a container uses for itself. Defaults to the container's ID if not specified.                                                                                                                                                            |\n\n### Custom hosts\n\nYour container will have lines in `/etc/hosts` which define the hostname of the\ncontainer itself, as well as `localhost` and a few other common things. Custom\nhosts, defined in `/etc/hosts` on the host machine, aren't inherited by\ncontainers. To pass additional hosts into a container, refer to add entries to\ncontainer hosts file in the\n`docker run` reference documentation.\n\n## Container networks\n\nIn addition to user-defined networks, you can attach a container to another\ncontainer's networking stack directly, using the `--network\ncontainer:` flag format.\n\nThe following flags aren't supported for containers using the `container:`\nnetworking mode:\n\n- `--add-host`\n- `--hostname`\n- `--dns`\n- `--dns-search`\n- `--dns-option`\n- `--mac-address`\n- `--publish`\n- `--publish-all`\n- `--expose`\n\nThe following example runs a Redis container, with Redis binding to\n127.0.0.1, then running the `redis-cli` command and connecting to the Redis\nserver over 127.0.0.1."
+  },
+  {
+   "id": "volumes",
+   "title": "Volumes",
+   "text": "Volumes are persistent data stores for containers, created and managed by\nDocker. You can create a volume explicitly using the `docker volume create`\ncommand, or Docker can create a volume during container or service creation.\n\nWhen you create a volume, it's stored within a directory on the Docker\nhost. When you mount the volume into a container, this directory is what's\nmounted into the container. This is similar to the way that bind mounts work,\nexcept that volumes are managed by Docker and are isolated from the core\nfunctionality of the host machine.\n\n## When to use volumes\n\nVolumes are the preferred mechanism for persisting data generated by and used\nby Docker containers. While bind mounts are dependent on the\ndirectory structure and OS of the host machine, volumes are completely managed by\nDocker. Volumes are a good choice for the following use cases:\n\n- Volumes are easier to back up or migrate than bind mounts.\n- You can manage volumes using Docker CLI commands or the Docker API.\n- Volumes work on both Linux and Windows containers.\n- Volumes can be more safely shared among multiple containers.\n- New volumes can have their content pre-populated by a container or build.\n- When your application requires high-performance I/O.\n\nVolumes are not a good choice if you need to access the files from the host, as\nthe volume is completely managed by Docker. Use bind mounts\nif you need to access files or directories from both containers and the host.\n\nVolumes are often a better choice than writing data directly to a container,\nbecause a volume doesn't increase the size of the containers using it. Using a\nvolume is also faster; writing into a container's writable layer requires a\nstorage driver to manage the\nfilesystem. The storage driver provides a union filesystem, using the Linux\nkernel. This extra abstraction reduces performance as compared to using\nvolumes, which write directly to the host filesystem.\n\nIf your container generates non-persistent state data, consider using a\ntmpfs mount to avoid storing the data anywhere permanently, and to\nincrease the container's performance by avoiding writing into the container's\nwritable layer.\n\nVolumes use `rprivate` (recursive private) bind propagation, and bind propagation isn't\nconfigurable for volumes.\n\n## A volume's lifecycle\n\nA volume's contents exist outside the lifecycle of a given container. When a\ncontainer is destroyed, the writable layer is destroyed with it. Using a volume\nensures that the data is persisted even if the container using it is removed.\n\nA given volume can be mounted into multiple containers simultaneously. When no\nrunning container is using a volume, the volume is still available to Docker\nand isn't removed automatically. You can remove unused volumes using `docker\nvolume prune`.\n\n## Mounting a volume over existing data\n\nIf you mount a _non-empty volume_ into a directory in the container in which\nfiles or directories exist, the pre-existing files are obscured by the mount.\nThis is similar to if you were to save files into `/mnt` on a Linux host, and\nthen mounted a USB drive into `/mnt`. The contents of `/mnt` would be obscured\nby the contents of the USB drive until the USB drive was unmounted.\n\nWith containers, there's no straightforward way of removing a mount to reveal\nthe obscured files again. Your best option is to recreate the container without\nthe mount.\n\nIf you mount an _empty volume_ into a directory in the container in which files\nor directories exist, these files or directories are propagated (copied) into\nthe volume by default. Similarly, if you start a container and specify a volume\nwhich does not already exist, an empty volume is created for you. This is a\ngood way to pre-populate data that another container needs.\n\nTo prevent Docker from copying a container's pre-existing files into an empty\nvolume, use the `volume-nocopy` option, see Options for --mount.\n\n## Named and anonymous volumes\n\nA volume may be named or anonymous. Anonymous volumes are given a random name\nthat's guaranteed to be unique within a given Docker host. Just like named\nvolumes, anonymous volumes persist even if you remove the container that uses\nthem, except if you use the `--rm` flag when creating the container, in which\ncase the anonymous volume associated with the container is destroyed. See\nRemove anonymous volumes.\n\nIf you create multiple containers consecutively that each use anonymous\nvolumes, each container creates its own volume. Anonymous volumes aren't reused\nor shared between containers automatically. To share an anonymous volume\nbetween two or more containers, you must mount the anonymous volume using the\nrandom volume ID.\n\n## Syntax\n\nTo mount a volume with the `docker run` command, you can use either the\n`--mount` or `--volume` flag.\n\nIn general, `--mount` is preferred. The main difference is that the `--mount`\nflag is more explicit and supports all the available options.\n\nYou must use `--mount` if you want to:\n\n- Specify volume driver options\n- Mount a volume subdirectory\n- Mount a volume into a Swarm service\n\n### Options for --mount\n\nThe `--mount` flag consists of multiple key-value pairs, separated by commas\nand each consisting of a `=` tuple. The order of the keys isn't\nsignificant.\n\nValid options for `--mount type=volume` include:\n\n| Option                         | Description                                                                                                                                                                                                                     |\n| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| `source`, `src`                | The source of the mount. For named volumes, this is the name of the volume. For anonymous volumes, this field is omitted.                                                                                                       |\n| `destination`, `dst`, `target` | The path where the file or directory is mounted in the container.                                                                                                                                                               |\n| `volume-subpath`               | A path to a subdirectory within the volume to mount into the container. The subdirectory must exist in the volume before the volume is mounted to a container. See Mount a volume subdirectory. |\n| `readonly`, `ro`               | If present, causes the volume to be mounted into the container as read-only.                                                                                                                         |\n| `volume-nocopy`                | If present, data at the destination isn't copied into the volume if the volume is empty. By default, content at the target destination gets copied into a mounted volume if empty.                                              |\n| `volume-opt`                   | Can be specified more than once, takes a key-value pair consisting of the option name and its value.                                                                                                                            |\n\n### Options for --volume\n\nThe `--volume` or `-v` flag consists of three fields, separated by colon\ncharacters (`:`). The fields must be in the correct order.\n\nIn the case of named volumes, the first field is the name of the volume, and is\nunique on a given host machine. For anonymous volumes, the first field is\nomitted. The second field is the path where the file or directory is mounted in\nthe container.\n\nThe third field is optional, and is a comma-separated list of options. Valid\noptions for `--volume` with a data volume include:\n\n| Option           | Description                                                                                                                                                                        |\n| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| `readonly`, `ro` | If present, causes the volume to be mounted into the container as read-only.                                                                            |\n| `volume-nocopy`  | If present, data at the destination isn't copied into the volume if the volume is empty. By default, content at the target destination gets copied into a mounted volume if empty. |\n\n## Create and manage volumes\n\nUnlike a bind mount, you can create and manage volumes outside the scope of any\ncontainer.\n\nCreate a volume:\n\nList volumes:\n\nInspect a volume:\n\nRemove a volume:\n\n## Start a container with a volume\n\nIf you start a container with a volume that doesn't yet exist, Docker creates\nthe volume for you. The following example mounts the volume `myvol2` into\n`/app/` in the container.\n\nThe following `-v` and `--mount` examples produce the same result. You can't\nrun them both unless you remove the `devtest` container and the `myvol2` volume\nafter running the first one.\n\nUse `docker inspect devtest` to verify that Docker created the volume and it mounted\ncorrectly. Look for the `Mounts` section:\n\nThis shows that the mount is a volume, it shows the correct source and\ndestination, and that the mount is read-write.\n\nStop the container and remove the volume. Note volume removal is a separate\nstep.\n\n## Use a volume with Docker Compose\n\nThe following example shows a single Docker Compose service with a volume:\n\nRunning `docker compose up` for the first time creates a volume. Docker reuses the same volume when you run the command subsequently.\n\nYou can create a volume directly outside of Compose using `docker volume create` and\nthen reference it inside `compose.yaml` as follows:\n\nFor more information about using volumes with Compose, refer to the\nVolumes\nsection in the Compose specification.\n\n### Start a service with volumes\n\nWhen you start a service and define a volume, each service container uses its own\nlocal volume. None of the containers can share this data if you use the `local`\nvolume driver. However, some volume drivers do support shared storage.\n\nThe following example starts an `nginx` service with four replicas, each of which\nuses a local volume called `myvol2`.\n\nUse `docker service ps devtest-service` to verify that the service is running:\n\nYou can remove the service to stop the running tasks:\n\nRemoving the service doesn't remove any volumes created by the service.\nVolume removal is a separate step.\n\n### Populate a volume using a container\n\nIf you start a container which creates a new volume, and the container\nhas files or directories in the directory to be mounted such as `/app/`,\nDocker copies the directory's contents into the volume. The container then\nmounts and uses the volume, and other containers which use the volume also\nhave access to the pre-populated content.\n\nTo show this, the following example starts an `nginx` container and\npopulates the new volume `nginx-vol` with the contents of the container's\n`/usr/share/nginx/html` directory. This is where Nginx stores its default HTML\ncontent.\n\nThe `--mount` and `-v` examples have the same end result.\n\nAfter running either of these examples, run the following commands to clean up\nthe containers and volumes. Note volume removal is a separate step.\n\n## Use a read-only volume\n\nFor some applications, the container needs to write to the volume. At other\ntimes, the container only needs read access to the data. Multiple\ncontainers can mount the same volume. You can simultaneously mount a\nsingle volume as `read-write` for some containers and as `read-only` for others.\n\nThe following example changes the previous one. It mounts the directory as a read-only\nvolume, by adding `ro` to the (empty by default) list of options, after the\nmount point within the container. Where multiple options are present, you can separate\nthem using commas.\n\nThe `--mount` and `-v` examples have the same result.\n\nUse `docker inspect nginxtest` to verify that Docker created the read-only mount\ncorrectly. Look for the `Mounts` section:\n\nStop and remove the container, and remove the volume. Volume removal is a\nseparate step.\n\n## Mount a volume subdirectory\n\nWhen you mount a volume to a container, you can specify a subdirectory of the\nvolume to use, with the `volume-subpath` parameter for the `--mount` flag. The\nsubdirectory that you specify must exist in the volume before you attempt to\nmount it into a container; if it doesn't exist, the mount fails.\n\nSpecifying `volume-subpath` is useful if you only want to share a specific\nportion of a volume with a container. Say for example that you have multiple\ncontainers running and you want to store logs from each container in a shared\nvolume. You can create a subdirectory for each container in the shared volume,\nand mount the subdirectory to the container.\n\nThe following example creates a `logs` volume and initiates the subdirectories\n`app1` and `app2` in the volume. It then starts two containers and mounts one\nof the subdirectories of the `logs` volume to each container. This example\nassumes that the processes in the containers write their logs to\n`/var/log/app1` and `/var/log/app2`.\n\nWith this setup, the containers write their logs to separate subdirectories of\nthe `logs` volume. The containers can't access the other container's logs.\n\n## Share data between machines\n\nWhen building fault-tolerant applications, you may need to configure multiple\nreplicas of the same service to have access to the same files.\n\n!shared storage\n\nThere are several ways to achieve this when developing your applications.\nOne is to add logic to your application to store files on a cloud object\nstorage system like Amazon S3. Another is to create volumes with a driver that\nsupports writing files to an external storage system like NFS or Amazon S3.\n\nVolume drivers let you abstract the underlying storage system from the\napplication logic. For example, if your services use a volume with an NFS\ndriver, you can update the services to use a different driver. For example, to\nstore data in the cloud, without changing the application logic.\n\n## Use a volume driver\n\nWhen you create a volume using `docker volume create`, or when you start a\ncontainer which uses a not-yet-created volume, you can specify a volume driver.\nThe following examples use the `rclone/docker-volume-rclone` volume driver, first when creating\na standalone volume, and then when starting a container which creates a new\nvolume.\n\n> [!NOTE]\n>\n> If your volume driver accepts a comma-separated list as an option,\n> you must escape the value from the outer CSV parser. To escape a `volume-opt`,\n> surround it with double quotes (`\"`) and surround the entire mount parameter\n> with single quotes (`'`).\n>\n> For example, the `local` driver accepts mount options as a comma-separated\n> list in the `o` parameter. This example shows the correct way to escape the list.\n>\n>\n\n### Initial setup\n\nThe following example assumes that you have two nodes, the first of which is a Docker\nhost and can connect to the second node using SSH.\n\nOn the Docker host, install the `rclone/docker-volume-rclone` plugin:\n\n### Create a volume using a volume driver\n\nThis example mounts the `/remote` directory on host `1.2.3.4` into a\nvolume named `rclonevolume`. Each volume driver may have zero or more\nconfigurable options, you specify each of them using an `-o` flag.\n\nThis volume can now be mounted into containers.\n\n### Start a container which creates a volume using a volume driver\n\n> [!NOTE]\n>\n> If the volume driver requires you to pass any options,\n> you must use the `--mount` flag to mount the volume, and not `-v`.\n\n### Create a service which creates an NFS volume\n\nThe following example shows how you can create an NFS volume when creating a service.\nIt uses `10.0.0.10` as the NFS server and `/var/docker-nfs` as the exported directory on the NFS server.\nNote that the volume driver specified is `local`.\n\n#### NFSv3\n\n#### NFSv4\n\n### Create CIFS/Samba volumes\n\nYou can mount a Samba share directly in Docker without configuring a mount point on your host.\n\nThe `addr` option is required if you specify a hostname instead of an IP.\nThis lets Docker perform the hostname lookup.\n\n### Block storage devices\n\nYou can mount a block storage device, such as an external drive or a drive partition, to a container.\nThe following example shows how to create and use a file as a block storage device,\nand how to mount the block device as a container volume.\n\n> [!IMPORTANT]\n>\n> The following procedure is only an example.\n> The solution illustrated here isn't recommended as a general practice.\n> Don't attempt this approach unless you're confident about what you're doing.\n\n#### How mounting block devices works\n\nUnder the hood, the `--mount` flag using the `local` storage driver invokes the\nLinux `mount` syscall and forwards the options you pass to it unaltered.\nDocker doesn't implement any additional functionality on top of the native mount features supported by the Linux kernel.\n\nIf you're familiar with the\nLinux `mount` command,\nyou can think of the `--mount` options as forwarded to the `mount` command in the following manner:\n\nTo explain this further, consider the following `mount` command example.\nThis command mounts the `/dev/loop5` device to the path `/external-drive` on the system.\n\nThe following `docker run` command achieves a similar result, from the point of view of the container being run.\nRunning a container with this `--mount` option sets up the mount in the same way as if you had executed the\n`mount` command from the previous example.\n\nYou can't run the `mount` command inside the container directly,\nbecause the container is unable to access the `/dev/loop5` device.\nThat's why the `docker run` command uses the `--mount` option.\n\n#### Example: Mounting a block device in a container\n\nThe following steps create an `ext4` filesystem and mounts it into a container.\nThe filesystem support of your system depends on the version of the Linux kernel you are using.\n\n1. Create a file and allocate some space to it:\n\n2. Build a filesystem onto the `disk.raw` file:\n\n3. Create a loop device:\n\n   > [!NOTE]\n   >\n   > `losetup` creates an ephemeral loop device that's removed after\n   > system reboot, or manually removed with `losetup -d`.\n\n4. Run a container that mounts the loop device as a volume:\n\n   When the container starts, the path `/external-drive` mounts the\n   `disk.raw` file from the host filesystem as a block device.\n\n5. When you're done, and the device is unmounted from the container,\n   detach the loop device to remove the device from the host system:\n\n## Back up, restore, or migrate data volumes\n\nVolumes are useful for backups, restores, and migrations.\nUse the `--volumes-from` flag to create a new container that mounts that volume.\n\n### Back up a volume\n\nFor example, create a new container named `dbstore`:\n\nIn the next command:\n\n- Launch a new container and mount the volume from the `dbstore` container\n- Mount a local host directory as `/backup`\n- Pass a command that tars the contents of the `dbdata` volume to a `backup.tar` file inside the `/backup` directory.\n\nWhen the command completes and the container stops, it creates a backup of\nthe `dbdata` volume.\n\n### Restore volume from a backup\n\nWith the backup just created, you can restore it to the same container,\nor to another container that you created elsewhere.\n\nFor example, create a new container named `dbstore2`:\n\nThen, un-tar the backup file in the new container’s data volume:\n\nYou can use these techniques to automate backup, migration, and restore\ntesting using your preferred tools.\n\n## Remove volumes\n\nA Docker data volume persists after you delete a container. There are two types\nof volumes to consider:\n\n- Named volumes have a specific name, for example, `awesome:/bar`, where `awesome` is the name.\n- Anonymous volumes have no specific name. Therefore, when the container is deleted, you can instruct the Docker Engine daemon to remove them.\n\n### Remove anonymous volumes\n\nTo automatically remove anonymous volumes, use the `--rm` option. For example,\nthis command creates an anonymous `/foo` volume. When you remove the container,\nthe Docker Engine removes the `/foo` volume but not the `awesome` volume.\n\nThe `--rm` option works with both foreground and detached (`-d`) containers.\nThe anonymous volumes are cleaned up when the container exits.\n\n> [!NOTE]\n>\n> If another container binds the volumes with\n> `--volumes-from`, the volume definitions are _copied_ and the\n> anonymous volume also stays after the first container is removed.\n\n### Remove all volumes\n\nTo remove all unused volumes and free up space:\n\n## Next steps\n\n- Learn about bind mounts.\n- Learn about tmpfs mounts.\n- Learn about image mounts.\n- Learn about storage drivers.\n- Learn about third-party volume driver plugins."
+  },
+  {
+   "id": "build-bp",
+   "title": "Building best practices",
+   "text": "## Use multi-stage builds\n\nMulti-stage builds let you reduce the size of your final image, by creating a\ncleaner separation between the building of your image and the final output.\nSplit your Dockerfile instructions into distinct stages to make sure that the\nresulting output only contains the files that are needed to run the application.\n\nUsing multiple stages can also let you build more efficiently by executing\nbuild steps in parallel.\n\nSee Multi-stage builds for more\ninformation.\n\n### Create reusable stages\n\nIf you have multiple images with a lot in common, consider creating a reusable\nstage that includes the shared components, and basing your unique stages on\nthat. Docker only needs to build the common stage once. This means that your derivative images use memory\non the Docker host more efficiently and load more quickly.\n\nIt's also easier to maintain a common base stage (\"Don't repeat yourself\"),\nthan it is to have multiple different stages doing similar things.\n\n## Choose the right base image\n\nThe first step towards achieving a secure image is to choose the right base\nimage. When choosing an image, ensure it's built from a trusted source and keep\nit small.\n\n- Docker Official Images\n  are a curated collection that have clear documentation, promote best\n  practices, and are regularly updated. They provide a trusted starting point\n  for many applications.\n\n- Verified Publisher images\n  are high-quality images published and maintained by the organizations\n  partnering with Docker, with Docker verifying the authenticity of the content\n  in their repositories.\n\n- Docker-Sponsored Open Source\n  are published and maintained by open source projects sponsored by Docker\n  through an open source program.\n\nWhen you pick your base image, look out for the badges indicating that the\nimage is part of these programs.\n\n!Docker Hub Official and Verified Publisher images\n\nWhen building your own image from a Dockerfile, ensure you choose a minimal base\nimage that matches your requirements. A smaller base image not only offers\nportability and fast downloads, but also shrinks the size of your image and\nminimizes the number of vulnerabilities introduced through the dependencies.\n\nYou should also consider using two types of base image: one for building and\nunit testing, and another (typically slimmer) image for production. In the\nlater stages of development, your image may not require build tools such as\ncompilers, build systems, and debugging tools. A small image with minimal\ndependencies can considerably lower the attack surface.\n\n## Rebuild your images often\n\nDocker images are immutable. Building an image is taking a snapshot of\nthat image at that moment. That includes any base images, libraries, or\nother software you use in your build. To keep your images up-to-date and\nsecure, rebuild your images regularly with updated dependencies.\n\n### Use --pull to get fresh base images\n\nThe following Dockerfile uses the `24.04` tag of the `ubuntu` image.\nOver time, that tag may resolve to a different underlying version of the\n`ubuntu` image, as the publisher rebuilds the image with new security\npatches and updated libraries.\n\nTo get the latest version of the base image, use the `--pull` flag:\n\nThe `--pull` flag forces Docker to check for and download a newer\nversion of the base image, even if you have a version cached locally.\n\n### Use --no-cache for clean builds\n\nThe `--no-cache` flag disables the build cache, forcing Docker to\nrebuild all layers from scratch:\n\nThis gets the latest available versions of dependencies from package\nmanagers like `apt-get` or `npm`. It does not pull a fresh base image —\nfor that, use `--pull`.\n\nThe two flags serve distinct purposes and can be combined. Use both\ntogether to get a fresh base image and re-execute all build steps:\n\nAlso consider pinning base image versions.\n\n## Exclude with .dockerignore\n\nTo exclude files not relevant to the build, without restructuring your source\nrepository, use a `.dockerignore` file. This file supports exclusion patterns\nsimilar to `.gitignore` files.\n\nFor example, to exclude all files with the `.md` extension:\n\nFor information on creating one, see\nDockerignore file.\n\n## Create ephemeral containers\n\nThe image defined by your Dockerfile should generate containers that are as\nephemeral as possible. Ephemeral means that the container can be stopped\nand destroyed, then rebuilt and replaced with an absolute minimum set up and\nconfiguration.\n\nRefer to Processes under _The Twelve-factor App_\nmethodology to get a feel for the motivations of running containers in such a\nstateless fashion.\n\n## Don't install unnecessary packages\n\nAvoid installing extra or unnecessary packages just because they might be nice to have. For example, you don’t need to include a text editor in a database image.\n\nWhen you avoid installing extra or unnecessary packages, your images have reduced complexity, reduced dependencies, reduced file sizes, and reduced build times.\n\n## Decouple applications\n\nEach container should have only one concern. Decoupling applications into\nmultiple containers makes it easier to scale horizontally and reuse containers.\nFor instance, a web application stack might consist of three separate\ncontainers, each with its own unique image, to manage the web application,\ndatabase, and an in-memory cache in a decoupled manner.\n\nLimiting each container to one process is a good rule of thumb, but it's not a\nhard and fast rule. For example, not only can containers be\nspawned with an init process,\nsome programs might spawn additional processes of their own accord. For\ninstance, Celery can spawn multiple worker\nprocesses, and Apache can create one process per\nrequest.\n\nUse your best judgment to keep containers as clean and modular as possible. If\ncontainers depend on each other, you can use Docker container networks\nto ensure that these containers can communicate.\n\n## Sort multi-line arguments\n\nWhenever possible, sort multi-line arguments alphanumerically to make maintenance easier.\nThis helps to avoid duplication of packages and make the\nlist much easier to update. This also makes PRs a lot easier to read and\nreview. Adding a space before a backslash (`\\`) helps as well.\n\nHere’s an example from the buildpack-deps image:\n\n## Leverage build cache\n\nWhen building an image, Docker steps through the instructions in your\nDockerfile, executing each in the order specified. For each instruction, Docker\nchecks whether it can reuse the instruction from the build cache.\n\nUnderstanding how the build cache works, and how cache invalidation occurs,\nis critical for ensuring faster builds.\nFor more information about the Docker build cache and how to optimize your builds,\nsee Docker build cache.\n\n## Pin base image versions\n\nImage tags are mutable, meaning a publisher can update a tag to point to a new\nimage. This is useful because it lets publishers update tags to point to\nnewer versions of an image. And as an image consumer, it means you\nautomatically get the new version when you re-build your image.\n\nFor example, if you specify `FROM alpine:3.21` in your Dockerfile, `3.21`\nresolves to the latest patch version for `3.21`.\n\nAt one point in time, the `3.21` tag might point to version 3.21.1 of the\nimage. If you rebuild the image 3 months later, the same tag might point to a\ndifferent version, such as 3.21.4. This publishing workflow is best practice,\nand most publishers use this tagging strategy, but it isn't enforced.\n\nThe downside with this is that you're not guaranteed to get the same for every\nbuild. This could result in breaking changes, and it means you also don't have\nan audit trail of the exact image versions that you're using.\n\nTo fully secure your supply chain integrity, you can pin the image version to a\nspecific digest. By pinning your images to a digest, you're guaranteed to\nalways use the same image version, even if a publisher replaces the tag with a\nnew image. For example, the following Dockerfile pins the Alpine image to the\nsame tag as earlier, `3.21`, but this time with a digest reference as well.\n\nWith this Dockerfile, even if the publisher updates the `3.21` tag, your builds\nwould still use the pinned image version:\n`a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c`.\n\nWhile this helps you avoid unexpected changes, it's also more tedious to have\nto look up and include the image digest for base image versions manually each\ntime you want to update it. And you're opting out of automated security fixes,\nwhich is likely something you want to get.\n\nDocker Scout's default **No outdated base images**\npolicy checks whether the\nbase image version you're using is in fact the latest version. This policy also\nchecks if pinned digests in your Dockerfile correspond to the correct version.\nIf a publisher updates an image that you've pinned, the policy evaluation\nreturns a non-compliant status, indicating that you should update your image.\n\nTo keep your base images up-to-date automatically, use\nGitHub Dependabot\nwith `package-ecosystem: \"docker\"`. Dependabot raises pull requests to update\nyour base image tags and digests on a schedule. This is better than using a tag\nthat changes the version automatically, because you're in control and you have\nan audit trail of when and how the change occurred.\n\nYou can also review available base image updates from the CLI with\n`docker scout recommendations`.\n\n## Build and test your images in CI\n\nWhen you check in a change to source control or create a pull request, use\nGitHub Actions or another CI/CD pipeline to\nautomatically build and tag a Docker image and test it.\n\n## Dockerfile instructions\n\nFollow these recommendations on how to properly use the Dockerfile instructions\nto create an efficient and maintainable Dockerfile.\n\n> [!TIP]\n>\n> To improve linting, code navigation, and vulnerability scanning of your Dockerfiles in Visual Studio Code\n> see the Docker DX extension.\n\n### FROM\n\nWhenever possible, use current official images as the basis for your\nimages. Docker recommends the Alpine image as it\nis tightly controlled and small in size (under 6 MB), while still\nbeing a full Linux distribution.\n\nFor more information about the `FROM` instruction, see Dockerfile reference for the FROM instruction.\n\n### LABEL\n\nYou can add labels to your image to help organize images by project, record\nlicensing information, to aid in automation, or for other reasons. For each\nlabel, add a line beginning with `LABEL` with one or more key-value pairs.\nThe following examples show the different acceptable formats. Explanatory comments are included inline.\n\nStrings with spaces must be quoted or the spaces must be escaped. Inner\nquote characters (`\"`), must also be escaped. For example:\n\nAn image can have more than one label. Prior to Docker 1.10, it was recommended\nto combine all labels into a single `LABEL` instruction, to prevent extra layers\nfrom being created. This is no longer necessary, but combining labels is still\nsupported. For example:\n\nThe above example can also be written as:\n\nSee Understanding object labels\nfor guidelines about acceptable label keys and values. For information about\nquerying labels, refer to the items related to filtering in\nManaging labels on objects.\nSee also LABEL in the Dockerfile reference.\n\n### RUN\n\nSplit long or complex `RUN` statements on multiple lines separated with\nbackslashes to make your Dockerfile more readable, understandable, and\nmaintainable.\n\nFor example, you can chain commands with the `&&` operator, and use\nescape characters to break long commands into multiple lines.\n\nBy default, backslash escapes a newline character, but you can change it with\nthe `escape` directive.\n\nYou can also use here documents to run multiple commands without chaining them\nwith a pipeline operator:\n\nFor more information about `RUN`, see Dockerfile reference for the RUN instruction.\n\n#### apt-get\n\nOne common use case for `RUN` instructions in Debian-based images is to install\nsoftware using `apt-get`. Because `apt-get` installs packages, the `RUN\napt-get` command has several counter-intuitive behaviors to look out for.\n\nAlways combine `RUN apt-get update` with `apt-get install` in the same `RUN`\nstatement. For example:\n\nUsing `apt-get update` alone in a `RUN` statement causes caching issues and\nsubsequent `apt-get install` instructions to fail. For example, this issue will occur in the following Dockerfile:\n\nAfter building the image, all layers are in the Docker cache. Suppose you later\nmodify `apt-get install` by adding an extra package as shown in the following Dockerfile:\n\nDocker sees the initial and modified instructions as identical and reuses the\ncache from previous steps. As a result the `apt-get update` isn't executed\nbecause the build uses the cached version. Because the `apt-get update` isn't\nrun, your build can potentially get an outdated version of the `curl` and\n`nginx` packages.\n\nUsing `RUN apt-get update && apt-get install -y --no-install-recommends` ensures your Dockerfile\ninstalls the latest package versions with no further coding or manual\nintervention. This technique is known as cache busting. You can also achieve\ncache busting by specifying a package version. This is known as version pinning.\nFor example:\n\nVersion pinning forces the build to retrieve a particular version regardless of\nwhat’s in the cache. This technique can also reduce failures due to unanticipated changes\nin required packages.\n\nBelow is a well-formed `RUN` instruction that demonstrates all the `apt-get`\nrecommendations.\n\nThe `s3cmd` argument specifies a version `1.1.*`. If the image previously\nused an older version, specifying the new one causes a cache bust of `apt-get\nupdate` and ensures the installation of the new version. Listing packages on\neach line can also prevent mistakes in package duplication.\n\nIn addition, when you clean up the apt cache by removing `/var/lib/apt/lists` it\nreduces the image size, since the apt cache isn't stored in a layer. Since the\n`RUN` statement starts with `apt-get update`, the package cache is always\nrefreshed prior to `apt-get install`.\n\nOfficial Debian and Ubuntu images automatically run `apt-get clean`, so explicit invocation is not required.\n\n#### Using pipes\n\nSome `RUN` commands depend on the ability to pipe the output of one command into another, using the pipe character (`|`), as in the following example:\n\nDocker executes these commands using the `/bin/sh -c` interpreter, which only\nevaluates the exit code of the last operation in the pipe to determine success.\nIn the example above, this build step succeeds and produces a new image so long\nas the `wc -l` command succeeds, even if the `wget` command fails.\n\nIf you want the command to fail due to an error at any stage in the pipe,\nprepend `set -o pipefail &&` to ensure that an unexpected error prevents the\nbuild from inadvertently succeeding. For example:\n\n> [!NOTE]\n>\n> Not all shells support the `-o pipefail` option.\n>\n> In cases such as the `dash` shell on\n> Debian-based images, consider using the _exec_ form of `RUN` to explicitly\n> choose a shell that does support the `pipefail` option. For example:\n>\n>\n\n### CMD\n\nThe `CMD` instruction should be used to run the software contained in your\nimage, along with any arguments. `CMD` should almost always be used in the form\nof `CMD [\"executable\", \"param1\", \"param2\"]`. Thus, if the image is for a\nservice, such as Apache and Rails, you would run something like `CMD\n[\"apache2\",\"-DFOREGROUND\"]`. Indeed, this form of the instruction is recommended\nfor any service-based image.\n\nIn most other cases, `CMD` should be given an interactive shell, such as bash,\nPython and perl. For example, `CMD [\"perl\", \"-de0\"]`, `CMD [\"python\"]`, or `CMD\n[\"php\", \"-a\"]`. Using this form means that when you execute something like\n`docker run -it python`, you’ll get dropped into a usable shell, ready to go.\n`CMD` should rarely be used in the manner of `CMD [\"param\", \"param\"]` in\nconjunction with `ENTRYPOINT`, unless\nyou and your expected users are already quite familiar with how `ENTRYPOINT`\nworks.\n\nFor more information about `CMD`, see Dockerfile reference for the CMD instruction.\n\n### EXPOSE\n\nThe `EXPOSE` instruction indicates the ports on which a container listens\nfor connections. Consequently, you should use the common, traditional port for\nyour application. For example, an image containing the Apache web server would\nuse `EXPOSE 80`, while an image containing MongoDB would use `EXPOSE 27017` and\nso on.\n\nFor external access, your users can execute `docker run` with a flag indicating\nhow to map the specified port to the port of their choice.\nFor container linking, Docker provides environment variables for the path from\nthe recipient container back to the source (for example, `MYSQL_PORT_3306_TCP`).\n\nFor more information about `EXPOSE`, see Dockerfile reference for the EXPOSE instruction.\n\n### ENV\n\nTo make new software easier to run, you can use `ENV` to update the\n`PATH` environment variable for the software your container installs. For\nexample, `ENV PATH=/usr/local/nginx/bin:$PATH` ensures that `CMD [\"nginx\"]`\njust works.\n\nThe `ENV` instruction is also useful for providing the required environment\nvariables specific to services you want to containerize, such as Postgres’s\n`PGDATA`.\n\nLastly, `ENV` can also be used to set commonly used version numbers so that\nversion bumps are easier to maintain, as seen in the following example:\n\nSimilar to having constant variables in a program, as opposed to hard-coding\nvalues, this approach lets you change a single `ENV` instruction to\nautomatically bump the version of the software in your container.\n\nEach `ENV` line creates a new intermediate layer, just like `RUN` commands. This\nmeans that even if you unset the environment variable in a future layer, it\nstill persists in this layer and its value can be dumped. You can test this by\ncreating a Dockerfile like the following, and then building it.\n\nTo prevent this and unset the environment variable, use a `RUN` command\nwith shell commands, to set, use, and unset the variable all in a single layer.\nYou can separate your commands with `;` or `&&`. If you use the second method,\nand one of the commands fails, the `docker build` also fails. This is usually a\ngood idea. Using `\\` as a line continuation character for Linux Dockerfiles\nimproves readability. You could also put all of the commands into a shell script\nand have the `RUN` command just run that shell script.\n\nFor more information about `ENV`, see Dockerfile reference for the ENV instruction.\n\n### ADD or COPY\n\n`ADD` and `COPY` are functionally similar. `COPY` supports basic copying of\nfiles into the container, from the build context\nor from a stage in a multi-stage build.\n`ADD` supports features for fetching files from remote HTTPS and Git URLs, and\nextracting tar files automatically when adding files from the build context.\n\nYou'll mostly want to use `COPY` for copying files from one stage to another in\na multi-stage build. If you need to add files from the build context to the\ncontainer temporarily to execute a `RUN` instruction, you can often substitute\nthe `COPY` instruction with a bind mount instead. For example, to temporarily\nadd a `requirements.txt` file for a `RUN pip install` instruction:\n\nBind mounts are more efficient than `COPY` for including files from the build\ncontext in the container. Note that bind-mounted files are only added\ntemporarily for a single `RUN` instruction, and don't persist in the final\nimage. If you need to include files from the build context in the final image,\nuse `COPY`.\n\nThe `ADD` instruction is best for when you need to download a remote artifact\nas part of your build. `ADD` is better than manually adding files using\nsomething like `wget` and `tar`, because it ensures a more precise build cache.\n`ADD` also has built-in support for checksum validation of the remote\nresources, and a protocol for parsing branches, tags, and subdirectories from\nGit URLs.\n\nThe following example uses `ADD` to download a .NET installer. Combined with\nmulti-stage builds, only the .NET runtime remains in the final stage, no\nintermediate files.\n\nFor more information about `ADD` or `COPY`, see the following:\n\n- Dockerfile reference for the ADD instruction\n- Dockerfile reference for the COPY instruction\n\n### ENTRYPOINT\n\nThe best use for `ENTRYPOINT` is to set the image's main command, allowing that\nimage to be run as though it was that command, and then use `CMD` as the\ndefault flags.\n\nThe following is an example of an image for the command line tool `s3cmd`:\n\nYou can use the following command to run the image and show the command's help:\n\nOr, you can use the right parameters to execute a command, like in the following example:\n\nThis is useful because the image name can double as a reference to the binary as\nshown in the command above.\n\nThe `ENTRYPOINT` instruction can also be used in combination with a helper\nscript, allowing it to function in a similar way to the command above, even\nwhen starting the tool may require more than one step.\n\nFor example, the Postgres Official Image\nuses the following script as its `ENTRYPOINT`:\n\nThis script uses the `exec` builtin so that the final running application becomes the container's PID 1. This allows the application to receive any Unix signals sent to the container. For more information, see the `ENTRYPOINT` reference.\n\nIn the following example, a helper script is copied into the container and run via `ENTRYPOINT` on\ncontainer start:\n\nThis script lets you interact with Postgres in several ways.\n\nIt can start Postgres:\n\nOr, you can use it to run Postgres and pass parameters to the server:\n\nLastly, you can use it to start a totally different tool, such as Bash:\n\nFor more information about `ENTRYPOINT`, see Dockerfile reference for the ENTRYPOINT instruction.\n\n### VOLUME\n\nYou should use the `VOLUME` instruction to expose any database storage area,\nconfiguration storage, or files and folders created by your Docker container. You\nare strongly encouraged to use `VOLUME` for any combination of mutable or user-serviceable\nparts of your image.\n\nFor more information about `VOLUME`, see Dockerfile reference for the VOLUME instruction.\n\n### USER\n\nIf a service can run without privileges, use `USER` to change to a non-root\nuser. Start by creating the user and group in the Dockerfile with something\nlike the following example:\n\n> [!NOTE]\n>\n> Consider an explicit UID/GID.\n>\n> Users and groups in an image are assigned a non-deterministic UID/GID in that\n> the \"next\" UID/GID is assigned regardless of image rebuilds. So, if it’s\n> critical, you should assign an explicit UID/GID.\n\n> [!NOTE]\n>\n> Due to an unresolved bug in the\n> Go archive/tar package's handling of sparse files, attempting to create a user\n> with a significantly large UID inside a Docker container can lead to disk\n> exhaustion because `/var/log/faillog` in the container layer is filled with\n> NULL (\\0) characters. A workaround is to pass the `--no-log-init` flag to\n> `useradd`. The Debian/Ubuntu `adduser` wrapper does not support this flag.\n\nAvoid installing or using `sudo` as it has unpredictable TTY and\nsignal-forwarding behavior that can cause problems. If you absolutely need\nfunctionality similar to `sudo`, such as initializing the daemon as `root` but\nrunning it as non-`root`, consider using “gosu”.\n\nLastly, to reduce layers and complexity, avoid switching `USER` back and forth\nfrequently.\n\nFor more information about `USER`, see Dockerfile reference for the USER instruction.\n\n### WORKDIR\n\nFor clarity and reliability, you should always use absolute paths for your\n`WORKDIR`. Also, you should use `WORKDIR` instead of proliferating instructions\nlike `RUN cd … && do-something`, which are hard to read, troubleshoot, and\nmaintain.\n\nFor more information about `WORKDIR`, see Dockerfile reference for the `WORKDIR` instruction.\n\n### ONBUILD\n\nAn `ONBUILD` command executes after the current Dockerfile build completes.\n`ONBUILD` executes in any child image derived `FROM` the current image. Think\nof the `ONBUILD` command as an instruction that the parent Dockerfile gives\nto the child Dockerfile.\n\nA Docker build executes `ONBUILD` commands before any command in a child\nDockerfile.\n\n`ONBUILD` is useful for images that are going to be built `FROM` a given\nimage. For example, you would use `ONBUILD` for a language stack image that\nbuilds arbitrary user software written in that language within the\nDockerfile, as you can see in Ruby’s `ONBUILD` variants.\n\nImages built with `ONBUILD` should get a separate tag. For example,\n`ruby:1.9-onbuild` or `ruby:2.0-onbuild`.\n\nBe careful when putting `ADD` or `COPY` in `ONBUILD`. The image\nfails catastrophically if the new build's context is missing the resource being\nadded. Adding a separate tag, as recommended above, helps mitigate this by\nallowing the Dockerfile author to make a choice.\n\nFor more information about `ONBUILD`, see Dockerfile reference for the ONBUILD instruction."
+  }
+ ],
+ "questions": [
+  {
+   "question": "Which network driver does the default Compose network use?",
+   "doc_id": "compose-net",
+   "evidence": "This network uses the `bridge` driver"
+  },
+  {
+   "question": "What is the default network called for a project in a directory named myapp?",
+   "doc_id": "compose-net",
+   "evidence": "A network called `myapp_default` is created"
+  },
+  {
+   "question": "How do containers in a Compose project find one another?",
+   "doc_id": "compose-net",
+   "evidence": "Each service registers its name with an internal DNS server"
+  },
+  {
+   "question": "Why should I reference services by name rather than by IP address?",
+   "doc_id": "compose-net",
+   "evidence": "they are not persisted across restarts or recreations"
+  },
+  {
+   "question": "Where does Compose take the project name from by default?",
+   "doc_id": "compose-net",
+   "evidence": "which is taken from the name of the directory it lives in"
+  },
+  {
+   "question": "How can the project name be overridden?",
+   "doc_id": "compose-net",
+   "evidence": "You can override the project name with either the `--project-name` flag or the `COMPOSE_PROJECT_NAME` environment variable"
+  },
+  {
+   "question": "Which port is used for service-to-service traffic, the host port or the container port?",
+   "doc_id": "compose-net",
+   "evidence": "Networked service-to-service communication uses the `CONTAINER_PORT`"
+  },
+  {
+   "question": "When is the host port actually used?",
+   "doc_id": "compose-net",
+   "evidence": "The host port is only used when accessing the service from outside the network"
+  },
+  {
+   "question": "What happens to open connections when a service container is replaced after a config change?",
+   "doc_id": "compose-net",
+   "evidence": "If any containers have connections open to the old container, they are closed"
+  },
+  {
+   "question": "Who is responsible for reconnecting after a container is recreated?",
+   "doc_id": "compose-net",
+   "evidence": "It is each container's responsibility to detect this condition, look up the name again, and reconnect"
+  },
+  {
+   "question": "What is the most secure networking mode in Compose?",
+   "doc_id": "compose-net",
+   "evidence": "By default, each service joins the project's bridge network. It is the most secure networking mode"
+  },
+  {
+   "question": "Does service-name DNS work with network_mode host?",
+   "doc_id": "compose-net",
+   "evidence": "No port mapping is needed or supported, and service name DNS resolution does not work"
+  },
+  {
+   "question": "What does network_mode none do?",
+   "doc_id": "compose-net",
+   "evidence": "Turns off all container networking"
+  },
+  {
+   "question": "How does a service share another container's network by service name?",
+   "doc_id": "compose-net",
+   "evidence": "Gives the container access to the specified container by referring to its service name"
+  },
+  {
+   "question": "What is the risk of using network_mode host?",
+   "doc_id": "compose-net",
+   "evidence": "A container using `network_mode: host` can access all host ports and observe all network traffic on the host"
+  },
+  {
+   "question": "How do I make services unable to reach each other?",
+   "doc_id": "compose-net",
+   "evidence": "The `proxy` service is isolated from the `db` service, because they do not share a network in common"
+  },
+  {
+   "question": "How can a network have no connection to the host's network interfaces?",
+   "doc_id": "compose-net",
+   "evidence": "Setting `internal: true` on a network creates it without a connection to the host's network interfaces"
+  },
+  {
+   "question": "Can a service on an internal network still reach the internet?",
+   "doc_id": "compose-net",
+   "evidence": "can still reach the internet via the non-internal network `public`"
+  },
+  {
+   "question": "How do I change settings of the default app-wide network?",
+   "doc_id": "compose-net",
+   "evidence": "by defining an entry under `networks` named `default`"
+  },
+  {
+   "question": "How do I connect Compose services to a network I created with docker network create?",
+   "doc_id": "compose-net",
+   "evidence": "you can connect your Compose services to it by marking the network as `external`"
+  },
+  {
+   "question": "What error appears if an external network does not exist?",
+   "doc_id": "compose-net",
+   "evidence": "Compose fails with a `Network not found` error"
+  },
+  {
+   "question": "What does the host-gateway value do on Linux?",
+   "doc_id": "compose-net",
+   "evidence": "On Linux, `host-gateway` resolves to the host's IP on the default bridge network"
+  },
+  {
+   "question": "Which driver enables multi-host communication in Swarm mode?",
+   "doc_id": "compose-net",
+   "evidence": "you can use the built-in `overlay` driver to enable multi-host communication"
+  },
+  {
+   "question": "Are links required for basic service-to-service communication?",
+   "doc_id": "compose-net",
+   "evidence": "They are not required for basic service-to-service communication"
+  },
+  {
+   "question": "Which command shows the host port mapped to a container port?",
+   "doc_id": "compose-net",
+   "evidence": "To find out which host port maps to a container port, use `docker compose port`"
+  },
+  {
+   "question": "How do I query one specific replica's port?",
+   "doc_id": "compose-net",
+   "evidence": "Use `--index` to query a specific replica"
+  },
+  {
+   "question": "What flag selects UDP when asking for a port mapping?",
+   "doc_id": "compose-net",
+   "evidence": "If a service exposes both TCP and UDP on the same port, use `--protocol`"
+  },
+  {
+   "question": "What is the built-in network on a fresh Docker Engine called?",
+   "doc_id": "net-overview",
+   "evidence": "it has a single built-in network called the \"default bridge\" network"
+  },
+  {
+   "question": "Which network does a container join if I do not pass --network?",
+   "doc_id": "net-overview",
+   "evidence": "When you run a container without the `--network` option, it is connected to the default bridge"
+  },
+  {
+   "question": "How do containers on the default bridge get internet access?",
+   "doc_id": "net-overview",
+   "evidence": "They use \"masquerading\""
+  },
+  {
+   "question": "Can containers on the default bridge refer to each other by name?",
+   "doc_id": "net-overview",
+   "evidence": "They cannot refer to each other by name"
+  },
+  {
+   "question": "Which networks let containers talk using container names?",
+   "doc_id": "net-overview",
+   "evidence": "Once connected to a user-defined network, containers can communicate with each other using container IP addresses or container names"
+  },
+  {
+   "question": "Which driver connects multiple Docker daemons together?",
+   "doc_id": "net-overview",
+   "evidence": "Swarm Overlay networks connect multiple Docker daemons together"
+  },
+  {
+   "question": "What does the macvlan driver do?",
+   "doc_id": "net-overview",
+   "evidence": "Containers appear as devices on the host's network"
+  },
+  {
+   "question": "What does the none driver do?",
+   "doc_id": "net-overview",
+   "evidence": "Completely isolate a container from the host and other containers"
+  },
+  {
+   "question": "Which driver connects containers to external VLANs?",
+   "doc_id": "net-overview",
+   "evidence": "Connect containers to external VLANs"
+  },
+  {
+   "question": "How is a container's connection to several networks compared to hardware?",
+   "doc_id": "net-overview",
+   "evidence": "Connecting a container to a network can be compared to connecting an Ethernet cable to a physical host"
+  },
+  {
+   "question": "How do I make a specific network the default gateway?",
+   "doc_id": "net-overview",
+   "evidence": "set its `gw-priority` to `1`"
+  },
+  {
+   "question": "What is the default gw-priority value?",
+   "doc_id": "net-overview",
+   "evidence": "The default `gw-priority` is `0`"
+  },
+  {
+   "question": "Are published ports reachable from outside the host by default?",
+   "doc_id": "net-overview",
+   "evidence": "Ports are not accessible from outside the host or, with the default configuration, from containers in other networks"
+  },
+  {
+   "question": "Which flag makes a port available outside the host?",
+   "doc_id": "net-overview",
+   "evidence": "Use the `--publish` or `-p` flag to make a port available outside the host"
+  },
+  {
+   "question": "How do I turn off IPv4 allocation on a new network?",
+   "doc_id": "net-overview",
+   "evidence": "it can be disabled using `--ipv4=false`"
+  },
+  {
+   "question": "What is a container's hostname by default?",
+   "doc_id": "net-overview",
+   "evidence": "a container's hostname defaults to be the container's ID in Docker"
+  },
+  {
+   "question": "Which flag adds an extra network alias?",
+   "doc_id": "net-overview",
+   "evidence": "you can use the `--alias` flag to specify an additional network alias for the container on that network"
+  },
+  {
+   "question": "Where can the default address pools be configured?",
+   "doc_id": "net-overview",
+   "evidence": "These pools can be configured in `/etc/docker/daemon.json`"
+  },
+  {
+   "question": "What does Docker use for IPv6 subnets when default-address-pools has none?",
+   "doc_id": "net-overview",
+   "evidence": "Docker allocates subnets from a Unique Local Address (ULA) prefix"
+  },
+  {
+   "question": "Which Docker version introduced unspecified addresses in --subnet?",
+   "doc_id": "net-overview",
+   "evidence": "Support for unspecified addresses in `--subnet` was introduced in Docker 29.0.0"
+  },
+  {
+   "question": "What is the address of the embedded DNS server?",
+   "doc_id": "net-overview",
+   "evidence": "The embedded DNS server address is `127.0.0.11`"
+  },
+  {
+   "question": "Which networks use Docker's embedded DNS server?",
+   "doc_id": "net-overview",
+   "evidence": "Containers that attach to a custom network use Docker's embedded DNS server"
+  },
+  {
+   "question": "In what order does the embedded DNS server on a custom network query upstream servers?",
+   "doc_id": "net-overview",
+   "evidence": "On a custom network, Docker's embedded DNS server queries upstream servers in"
+  },
+  {
+   "question": "What does --dns-search configure?",
+   "doc_id": "net-overview",
+   "evidence": "A DNS search domain to search non-fully qualified hostnames"
+  },
+  {
+   "question": "Are custom entries from the host's /etc/hosts inherited by containers?",
+   "doc_id": "net-overview",
+   "evidence": "Custom hosts, defined in `/etc/hosts` on the host machine, aren't inherited by containers"
+  },
+  {
+   "question": "Which flags are unsupported with the container: networking mode?",
+   "doc_id": "net-overview",
+   "evidence": "The following flags aren't supported for containers using the `container:` networking mode"
+  },
+  {
+   "question": "Who manages a Docker volume?",
+   "doc_id": "volumes",
+   "evidence": "volumes are completely managed by Docker"
+  },
+  {
+   "question": "Which mechanism does Docker prefer for persisting container data?",
+   "doc_id": "volumes",
+   "evidence": "Volumes are the preferred mechanism for persisting data generated by and used by Docker containers"
+  },
+  {
+   "question": "Why are volumes easier to move than bind mounts?",
+   "doc_id": "volumes",
+   "evidence": "Volumes are easier to back up or migrate than bind mounts"
+  },
+  {
+   "question": "When are volumes not a good choice?",
+   "doc_id": "volumes",
+   "evidence": "Volumes are not a good choice if you need to access the files from the host"
+  },
+  {
+   "question": "Why is a volume faster than writing to the container's writable layer?",
+   "doc_id": "volumes",
+   "evidence": "This extra abstraction reduces performance as compared to using volumes"
+  },
+  {
+   "question": "What should I use for non-persistent state data?",
+   "doc_id": "volumes",
+   "evidence": "consider using a tmpfs mount"
+  },
+  {
+   "question": "What bind propagation do volumes use?",
+   "doc_id": "volumes",
+   "evidence": "Volumes use `rprivate` (recursive private) bind propagation"
+  },
+  {
+   "question": "What happens to a volume when its container is removed?",
+   "doc_id": "volumes",
+   "evidence": "Using a volume ensures that the data is persisted even if the container using it is removed"
+  },
+  {
+   "question": "Is an unused volume deleted automatically?",
+   "doc_id": "volumes",
+   "evidence": "isn't removed automatically"
+  },
+  {
+   "question": "Which command removes unused volumes?",
+   "doc_id": "volumes",
+   "evidence": "You can remove unused volumes using `docker volume prune`"
+  },
+  {
+   "question": "What happens to existing files when a non-empty volume is mounted over them?",
+   "doc_id": "volumes",
+   "evidence": "the pre-existing files are obscured by the mount"
+  },
+  {
+   "question": "How can I reveal files hidden by a mount?",
+   "doc_id": "volumes",
+   "evidence": "Your best option is to recreate the container without the mount"
+  },
+  {
+   "question": "What happens when an empty volume is mounted over existing files?",
+   "doc_id": "volumes",
+   "evidence": "these files or directories are propagated (copied) into the volume by default"
+  },
+  {
+   "question": "Which option stops files being copied into an empty volume?",
+   "doc_id": "volumes",
+   "evidence": "use the `volume-nocopy` option"
+  },
+  {
+   "question": "What are anonymous volumes named?",
+   "doc_id": "volumes",
+   "evidence": "Anonymous volumes are given a random name that's guaranteed to be unique within a given Docker host"
+  },
+  {
+   "question": "When is an anonymous volume destroyed with its container?",
+   "doc_id": "volumes",
+   "evidence": "except if you use the `--rm` flag when creating the container"
+  },
+  {
+   "question": "Are anonymous volumes shared between containers automatically?",
+   "doc_id": "volumes",
+   "evidence": "Anonymous volumes aren't reused or shared between containers automatically"
+  },
+  {
+   "question": "Which flag is preferred, --mount or --volume?",
+   "doc_id": "volumes",
+   "evidence": "In general, `--mount` is preferred"
+  },
+  {
+   "question": "When must I use --mount rather than --volume?",
+   "doc_id": "volumes",
+   "evidence": "You must use `--mount` if you want to"
+  },
+  {
+   "question": "Is the order of keys in a --mount flag significant?",
+   "doc_id": "volumes",
+   "evidence": "The order of the keys isn't significant"
+  },
+  {
+   "question": "How many fields does the --volume flag have?",
+   "doc_id": "volumes",
+   "evidence": "The `--volume` or `-v` flag consists of three fields, separated by colon characters"
+  },
+  {
+   "question": "Must a volume subdirectory exist before mounting it?",
+   "doc_id": "volumes",
+   "evidence": "The subdirectory that you specify must exist in the volume before you attempt to mount it into a container"
+  },
+  {
+   "question": "What happens if the volume-subpath directory does not exist?",
+   "doc_id": "volumes",
+   "evidence": "if it doesn't exist, the mount fails"
+  },
+  {
+   "question": "Do services with the local driver share a volume's data across replicas?",
+   "doc_id": "volumes",
+   "evidence": "each service container uses its own local volume"
+  },
+  {
+   "question": "Does removing a service also remove its volumes?",
+   "doc_id": "volumes",
+   "evidence": "Removing the service doesn't remove any volumes created by the service"
+  },
+  {
+   "question": "How does Docker populate a new volume from a container?",
+   "doc_id": "volumes",
+   "evidence": "Docker copies the directory's contents into the volume"
+  },
+  {
+   "question": "Can one volume be read-write for some containers and read-only for others?",
+   "doc_id": "volumes",
+   "evidence": "You can simultaneously mount a single volume as `read-write` for some containers and as `read-only` for others"
+  },
+  {
+   "question": "Which option mounts a volume read-only?",
+   "doc_id": "volumes",
+   "evidence": "by adding `ro` to the (empty by default) list of options"
+  },
+  {
+   "question": "What do volume drivers let me do?",
+   "doc_id": "volumes",
+   "evidence": "Volume drivers let you abstract the underlying storage system from the application logic"
+  },
+  {
+   "question": "Which driver does the NFS service example use?",
+   "doc_id": "volumes",
+   "evidence": "Note that the volume driver specified is `local`"
+  },
+  {
+   "question": "When must --mount be used instead of -v with a volume driver?",
+   "doc_id": "volumes",
+   "evidence": "you must use the `--mount` flag to mount the volume, and not `-v`"
+  },
+  {
+   "question": "What does the addr option do for CIFS volumes?",
+   "doc_id": "volumes",
+   "evidence": "The `addr` option is required if you specify a hostname instead of an IP"
+  },
+  {
+   "question": "What does the local driver do when mounting a block device?",
+   "doc_id": "volumes",
+   "evidence": "invokes the Linux `mount` syscall and forwards the options you pass to it unaltered"
+  },
+  {
+   "question": "Does the loop device made by losetup survive a reboot?",
+   "doc_id": "volumes",
+   "evidence": "creates an ephemeral loop device that's removed after"
+  },
+  {
+   "question": "Which flag creates a container that mounts another container's volumes for backup?",
+   "doc_id": "volumes",
+   "evidence": "Use the `--volumes-from` flag"
+  },
+  {
+   "question": "What do multi-stage builds reduce?",
+   "doc_id": "build-bp",
+   "evidence": "Multi-stage builds let you reduce the size of your final image"
+  },
+  {
+   "question": "How can multiple stages help build speed?",
+   "doc_id": "build-bp",
+   "evidence": "Using multiple stages can also let you build more efficiently by executing build steps in parallel"
+  },
+  {
+   "question": "How many times is a shared stage built?",
+   "doc_id": "build-bp",
+   "evidence": "Docker only needs to build the common stage once"
+  },
+  {
+   "question": "Where should a base image come from?",
+   "doc_id": "build-bp",
+   "evidence": "ensure it's built from a trusted source and keep it small"
+  },
+  {
+   "question": "What do Docker Official Images provide?",
+   "doc_id": "build-bp",
+   "evidence": "They provide a trusted starting point for many applications"
+  },
+  {
+   "question": "Who publishes Verified Publisher images?",
+   "doc_id": "build-bp",
+   "evidence": "published and maintained by the organizations partnering with Docker"
+  },
+  {
+   "question": "Why use a slimmer image for production?",
+   "doc_id": "build-bp",
+   "evidence": "A small image with minimal dependencies can considerably lower the attack surface"
+  },
+  {
+   "question": "Why do images need regular rebuilds?",
+   "doc_id": "build-bp",
+   "evidence": "Docker images are immutable"
+  },
+  {
+   "question": "What does --pull do?",
+   "doc_id": "build-bp",
+   "evidence": "forces Docker to check for and download a newer version of the base image, even if you have a version cached locally"
+  },
+  {
+   "question": "What does --no-cache do?",
+   "doc_id": "build-bp",
+   "evidence": "disables the build cache, forcing Docker to rebuild all layers from scratch"
+  },
+  {
+   "question": "Does --no-cache fetch a new base image?",
+   "doc_id": "build-bp",
+   "evidence": "It does not pull a fresh base image"
+  },
+  {
+   "question": "Can --pull and --no-cache be combined?",
+   "doc_id": "build-bp",
+   "evidence": "The two flags serve distinct purposes and can be combined"
+  },
+  {
+   "question": "What does a .dockerignore file do?",
+   "doc_id": "build-bp",
+   "evidence": "To exclude files not relevant to the build, without restructuring your source repository, use a `.dockerignore` file"
+  },
+  {
+   "question": "What does ephemeral mean for a container?",
+   "doc_id": "build-bp",
+   "evidence": "the container can be stopped and destroyed, then rebuilt and replaced with an absolute minimum set up and configuration"
+  },
+  {
+   "question": "Which methodology motivates stateless containers?",
+   "doc_id": "build-bp",
+   "evidence": "Processes under _The Twelve-factor App_ methodology"
+  },
+  {
+   "question": "How many concerns should a container have?",
+   "doc_id": "build-bp",
+   "evidence": "Each container should have only one concern"
+  },
+  {
+   "question": "Is one process per container a hard rule?",
+   "doc_id": "build-bp",
+   "evidence": "it's not a hard and fast rule"
+  },
+  {
+   "question": "Why sort multi-line arguments?",
+   "doc_id": "build-bp",
+   "evidence": "This helps to avoid duplication of packages and make the list much easier to update"
+  },
+  {
+   "question": "Why are image tags a risk for reproducibility?",
+   "doc_id": "build-bp",
+   "evidence": "Image tags are mutable, meaning a publisher can update a tag to point to a new image"
+  },
+  {
+   "question": "How do I guarantee the same base image on every build?",
+   "doc_id": "build-bp",
+   "evidence": "By pinning your images to a digest, you're guaranteed to always use the same image version"
+  },
+  {
+   "question": "What is the downside of pinning to a digest?",
+   "doc_id": "build-bp",
+   "evidence": "you're opting out of automated security fixes"
+  },
+  {
+   "question": "Which tool raises pull requests to update base image tags?",
+   "doc_id": "build-bp",
+   "evidence": "use GitHub Dependabot with `package-ecosystem: \"docker\"`"
+  },
+  {
+   "question": "Which Docker Scout policy checks for old base images?",
+   "doc_id": "build-bp",
+   "evidence": "Docker Scout's default **No outdated base images** policy"
+  },
+  {
+   "question": "Which base image does Docker recommend for FROM?",
+   "doc_id": "build-bp",
+   "evidence": "Docker recommends the Alpine image as it is tightly controlled and small in size"
+  },
+  {
+   "question": "How should long RUN statements be written?",
+   "doc_id": "build-bp",
+   "evidence": "Split long or complex `RUN` statements on multiple lines separated with backslashes"
+  },
+  {
+   "question": "Is combining labels into one LABEL instruction still needed?",
+   "doc_id": "build-bp",
+   "evidence": "This is no longer necessary, but combining labels is still supported"
+  }
+ ]
+}

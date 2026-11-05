@@ -189,3 +189,17 @@ def test_cli_cluster_flag(capsys):
     argv = ["run", "--strategies", "fixed,structure", "--bootstrap", "50",
             "--baseline", "fixed", "--cluster"]
     assert main(argv) == 0
+
+
+def test_docker_docs_dataset_loads_and_validates():
+    data = load_dataset("docker-docs")
+    assert len(data["documents"]) == 4 and len(data["questions"]) >= 100
+    rows = run_benchmark(data, ["fixed", "sdca_lite"], max_words=80)
+    assert all(0.0 < r["hit@3"] <= 1.0 for r in rows)
+
+
+def test_cluster_warns_with_few_documents():
+    import pytest
+
+    with pytest.warns(UserWarning, match="few distinct"):
+        run_benchmark(load_dataset("docker-docs"), ["fixed"], bootstrap=20, cluster=True)
