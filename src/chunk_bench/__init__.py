@@ -4,7 +4,7 @@ from .datasets import load_dataset
 from .runner import run_benchmark
 from .strategies import available_strategies, get_strategy, register_strategy
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "available_strategies",

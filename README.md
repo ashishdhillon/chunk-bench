@@ -1,5 +1,7 @@
 # chunk-bench
 
+[![CI](https://github.com/ashishdhillon/chunk-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/ashishdhillon/chunk-bench/actions/workflows/ci.yml)
+
 A small, dependency-free, reproducible benchmark for **RAG chunking strategies**.
 
 Chunking decides what your retriever can ever find. `chunk-bench` measures it directly: chunk a corpus, index it with BM25, retrieve for each question, and check whether the evidence span survives intact in a retrieved chunk.
